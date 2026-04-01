@@ -108,6 +108,38 @@ function typeMultiplier(attackType, defenderTypes) {
   return mult;
 }
 
+
+function previewDamage(attacker, defender) {
+  const raw = attacker.skill.power + attacker.stats.PO - defender.stats.Def;
+  const baseDamage = Math.max(1, raw);
+  const multiplier = typeMultiplier(attacker.skill.type, defender.types);
+  return Math.max(1, Math.floor(baseDamage * multiplier));
+}
+
+function chooseBestEnemyAction() {
+  const enemyCandidates = state.enemy.filter(u => u?.alive && computeTargets(u).length > 0);
+  let best = null;
+
+  enemyCandidates.forEach(attacker => {
+    const targets = computeTargets(attacker);
+    targets.forEach(targetIdx => {
+      const defender = state.player[targetIdx];
+      if (!defender?.alive) return;
+      const damage = previewDamage(attacker, defender);
+      const lethal = damage >= defender.hp ? 1 : 0;
+      const threat = defender.stats.PO * 2 + defender.stats.Spd;
+      const attackerSpeedWeight = attacker.stats.Spd * 0.2;
+      const score = lethal * 10000 + damage * 100 + threat + attackerSpeedWeight;
+
+      if (!best || score > best.score) {
+        best = { attacker, defender, score, damage, lethal: !!lethal };
+      }
+    });
+  });
+
+  return best;
+}
+
 function dealDamage(attacker, defender) {
   const raw = attacker.skill.power + attacker.stats.PO - defender.stats.Def;
   const baseDamage = Math.max(1, raw);
@@ -145,16 +177,15 @@ function enemyTurn() {
   if (state.ended) return;
   state.phase = "enemy";
   render();
-  const candidates = state.enemy.filter(u => u?.alive && computeTargets(u).length > 0);
-  if (candidates.length === 0) {
+
+  const bestAction = chooseBestEnemyAction();
+  if (!bestAction) {
     addLog("Enemy has no actions.");
   } else {
-    candidates.sort((a, b) => b.stats.Spd - a.stats.Spd);
-    const attacker = candidates[0];
-    const targets = computeTargets(attacker);
-    const defender = state.player[targets[Math.floor(Math.random() * targets.length)]];
-    dealDamage(attacker, defender);
+    addLog(`Enemy AI chooses ${bestAction.attacker.name} -> ${bestAction.defender.name} (predicted ${bestAction.damage}${bestAction.lethal ? ", lethal" : ""}).`);
+    dealDamage(bestAction.attacker, bestAction.defender);
   }
+
   checkBattleEnd();
   state.round += 1;
   state.phase = "player";

@@ -28,8 +28,8 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 - Type multiplier system from provided Typings (implemented for used attack types in this demo: Normal / Plant / Bug).
 - Damage formula (Pokemon-like simplified):
   - `max(1, (SkillPO + AttackerPO - DefenderDef) * typingMultiplier)`
-- Speed-based enemy AI action choice.
-- Face-to-face battlefield presentation: enemy and player rows are visually oriented toward each other (not flat side-by-side lists).
+- Enemy AI uses a best-action heuristic: prioritize lethal hits, then maximize damage and threat reduction.
+- Face-to-face battlefield presentation: enemy and player formations are displayed vertically (enemy on top, player on bottom) and face each other.
 - Slide-out right panel with the requested buttons (Base/Cards/Team/Bag/Exit/Locked) as UI shell.
 
 ## Run
