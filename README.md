@@ -29,6 +29,7 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 - Damage formula (Pokemon-like simplified):
   - `max(1, (SkillPO + AttackerPO - DefenderDef) * typingMultiplier)`
 - Speed-based enemy AI action choice.
+- Face-to-face battlefield presentation: enemy and player rows are visually oriented toward each other (not flat side-by-side lists).
 - Slide-out right panel with the requested buttons (Base/Cards/Team/Bag/Exit/Locked) as UI shell.
 
 ## Run

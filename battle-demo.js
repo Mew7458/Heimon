@@ -172,11 +172,14 @@ function checkBattleEnd() {
   }
 }
 
-function cardHtml(unit, cls) {
-  if (!unit) return `<div class="slot ${cls}"><small>Empty</small></div>`;
+function cardHtml(unit, cls, teamName, rowTag) {
+  if (!unit) return `<div class="slot ${cls}"><div class="rowtag">${rowTag}</div><small>Empty</small></div>`;
   const hpPct = Math.max(0, Math.round((unit.hp / unit.stats.HP) * 100));
+  const face = teamName === "player" ? "↑ Facing Enemy" : "↓ Facing Player";
   return `<div class="slot ${cls} ${unit.alive ? "" : "dead"}">
+      <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name}</div>
+      <div class="face">${face}</div>
       <small>${unit.types.join("/")} | ${unit.skill.name}</small>
       <div class="hpbar"><div class="hpfill" style="width:${hpPct}%"></div></div>
       <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | DEF ${unit.stats.Def} | SPD ${unit.stats.Spd}</small>
@@ -185,10 +188,13 @@ function cardHtml(unit, cls) {
 
 function renderGrid(teamName, rootEl, onClick) {
   rootEl.innerHTML = "";
-  state[teamName].forEach((u, idx) => {
+  const order = teamName === "enemy" ? [3,4,5,0,1,2] : [0,1,2,3,4,5];
+  order.forEach((idx, drawIdx) => {
+    const u = state[teamName][idx];
     const wrapper = document.createElement("div");
     const baseCls = teamName === "player" ? "ally" : "enemy";
-    wrapper.innerHTML = cardHtml(u, baseCls);
+    const rowTag = drawIdx < 3 ? (teamName === "enemy" ? "Back Row" : "Front Row") : (teamName === "enemy" ? "Front Row" : "Back Row");
+    wrapper.innerHTML = cardHtml(u, baseCls, teamName, rowTag);
     const slotDiv = wrapper.firstElementChild;
 
     if (teamName === "player" && state.phase === "player" && u?.alive && !state.playerUsedAction) {
