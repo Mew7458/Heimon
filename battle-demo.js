@@ -7,19 +7,19 @@ const TYPE_CHART = {
 const CARDS = {
   Man: {
     name: "Man", types: ["Normal"], stats: { HP: 10, PO: 1, Def: 0, MO: 0, MR: 0, Spd: 10 },
-    skill: { name: "Punch", type: "Normal", power: 5, range: "basic" }
+    skill: { name: "Punch", type: "Normal", power: 40, range: "basic" }
   },
   Brig: {
     name: "Brig", types: ["Bug"], stats: { HP: 15, PO: 5, Def: 0, MO: 1, MR: 0, Spd: 15 },
-    skill: { name: "Miniture Bite", type: "Bug", power: 5, range: "basic" }
+    skill: { name: "Miniture Bite", type: "Bug", power: 40, range: "basic" }
   },
   Cat: {
     name: "Cat", types: ["Normal"], stats: { HP: 17, PO: 10, Def: 5, MO: 1, MR: 0, Spd: 20 },
-    skill: { name: "Scratch", type: "Normal", power: 5, range: "basic" }
+    skill: { name: "Scratch", type: "Normal", power: 40, range: "basic" }
   },
   Dandi: {
     name: "Dandi", types: ["Plant"], stats: { HP: 25, PO: 20, Def: 10, MO: 5, MR: 5, Spd: 2 },
-    skill: { name: "Vine thorns", type: "Plant", power: 3, range: "pierce" }
+    skill: { name: "Vine thorns", type: "Plant", power: 35, range: "pierce" }
   }
 };
 
@@ -27,6 +27,8 @@ const STARTING_FORMATION = {
   player: ["Man", null, "Dandi", "Cat", "Brig", "Cat"],
   enemy: ["Man", null, "Man", "Cat", "Brig", "Cat"]
 };
+
+const BATTLE_LEVEL = 10;
 
 let state = {};
 
@@ -48,22 +50,23 @@ function cloneUnit(cardName, team, slot) {
     hp: base.stats.HP,
     alive: true,
     team,
-    slot
+    slot,
+    level: BATTLE_LEVEL
   };
 }
 
 function initBattle() {
   state = {
     round: 1,
-    phase: "player",
+    phase: "player-select",
     selectedUnitId: null,
-    playerUsedAction: false,
     player: STARTING_FORMATION.player.map((c, i) => cloneUnit(c, "player", i)),
     enemy: STARTING_FORMATION.enemy.map((c, i) => cloneUnit(c, "enemy", i)),
+    pending: { player: null, enemy: null },
     ended: false
   };
   logEl.innerHTML = "";
-  addLog("Battle started.");
+  addLog("Battle started. Select your attacker and target.");
   render();
 }
 
@@ -76,7 +79,6 @@ function frontLineIndex(team, col) {
   if (back && back.alive) return col + 3;
   return -1;
 }
-
 
 function nearestColumnsWithFront(team, fromCol) {
   const available = [0, 1, 2]
@@ -131,12 +133,23 @@ function typeMultiplier(attackType, defenderTypes) {
   return mult;
 }
 
+function previewDamage(attacker, defender, includeRandom = false) {
+  const levelFactor = Math.floor((2 * attacker.level) / 5 + 2);
+  const attack = Math.max(1, attacker.stats.PO);
+  const defense = Math.max(1, defender.stats.Def);
+  const base = Math.floor((levelFactor * attacker.skill.power * attack) / defense / 50) + 2;
+  const stab = attacker.types.includes(attacker.skill.type) ? 1.5 : 1;
+  const type = typeMultiplier(attacker.skill.type, defender.types);
+  const randomMod = includeRandom ? (0.85 + Math.random() * 0.15) : 1;
+  return Math.max(1, Math.floor(base * stab * type * randomMod));
+}
 
-function previewDamage(attacker, defender) {
-  const raw = attacker.skill.power + attacker.stats.PO - defender.stats.Def;
-  const baseDamage = Math.max(1, raw);
-  const multiplier = typeMultiplier(attacker.skill.type, defender.types);
-  return Math.max(1, Math.floor(baseDamage * multiplier));
+function dealDamage(attacker, defender) {
+  const dmg = previewDamage(attacker, defender, true);
+  defender.hp = Math.max(0, defender.hp - dmg);
+  if (defender.hp <= 0) defender.alive = false;
+  addLog(`${attacker.team.toUpperCase()} ${attacker.name} uses ${attacker.skill.name} on ${defender.name} for ${dmg} damage.`);
+  if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
 }
 
 function chooseBestEnemyAction() {
@@ -144,18 +157,15 @@ function chooseBestEnemyAction() {
   let best = null;
 
   enemyCandidates.forEach(attacker => {
-    const targets = computeTargets(attacker);
-    targets.forEach(targetIdx => {
+    computeTargets(attacker).forEach(targetIdx => {
       const defender = state.player[targetIdx];
       if (!defender?.alive) return;
-      const damage = previewDamage(attacker, defender);
+      const damage = previewDamage(attacker, defender, false);
       const lethal = damage >= defender.hp ? 1 : 0;
       const threat = defender.stats.PO * 2 + defender.stats.Spd;
-      const attackerSpeedWeight = attacker.stats.Spd * 0.2;
-      const score = lethal * 10000 + damage * 100 + threat + attackerSpeedWeight;
-
+      const score = lethal * 10000 + damage * 100 + threat;
       if (!best || score > best.score) {
-        best = { attacker, defender, score, damage, lethal: !!lethal };
+        best = { team: "enemy", attackerId: attacker.id, targetIdx, score, damage };
       }
     });
   });
@@ -163,19 +173,42 @@ function chooseBestEnemyAction() {
   return best;
 }
 
-function dealDamage(attacker, defender) {
-  const raw = attacker.skill.power + attacker.stats.PO - defender.stats.Def;
-  const baseDamage = Math.max(1, raw);
-  const multiplier = typeMultiplier(attacker.skill.type, defender.types);
-  const dmg = Math.max(1, Math.floor(baseDamage * multiplier));
-  defender.hp = Math.max(0, defender.hp - dmg);
-  if (defender.hp <= 0) defender.alive = false;
-  addLog(`${attacker.team.toUpperCase()} ${attacker.name} uses ${attacker.skill.name} on ${defender.name} for ${dmg} damage (${multiplier.toFixed(2)}x).`);
-  if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
+function getUnitById(team, id) {
+  return state[team].find(u => u?.id === id);
+}
+
+function resolveRound() {
+  state.phase = "resolving";
+  render();
+
+  const actions = [state.pending.player, state.pending.enemy]
+    .filter(Boolean)
+    .map(action => {
+      const attacker = getUnitById(action.team, action.attackerId);
+      const defenderTeam = action.team === "player" ? "enemy" : "player";
+      const defender = state[defenderTeam][action.targetIdx];
+      return { ...action, attacker, defender, speed: attacker?.stats.Spd ?? 0 };
+    })
+    .filter(a => a.attacker?.alive && a.defender?.alive);
+
+  actions.sort((a, b) => b.speed - a.speed || (Math.random() < 0.5 ? -1 : 1));
+
+  actions.forEach(action => {
+    if (!action.attacker.alive || !action.defender.alive) return;
+    dealDamage(action.attacker, action.defender);
+  });
+
+  checkBattleEnd();
+  state.round += 1;
+  state.pending.player = null;
+  state.pending.enemy = null;
+  state.selectedUnitId = null;
+  state.phase = state.ended ? "ended" : "player-select";
+  render();
 }
 
 function onPlayerSlotClick(idx) {
-  if (state.phase !== "player" || state.ended) return;
+  if (state.phase !== "player-select" || state.ended) return;
   const unit = getUnit("player", idx);
   if (!unit?.alive) return;
   state.selectedUnitId = unit.id;
@@ -183,41 +216,19 @@ function onPlayerSlotClick(idx) {
 }
 
 function onEnemySlotClick(idx) {
-  if (state.phase !== "player" || state.ended) return;
-  const attacker = state.player.find(u => u?.id === state.selectedUnitId && u.alive);
-  if (!attacker || state.playerUsedAction) return;
+  if (state.phase !== "player-select" || state.ended) return;
+  const attacker = getUnitById("player", state.selectedUnitId);
+  if (!attacker?.alive) return;
   const valid = computeTargets(attacker);
   if (!valid.includes(idx)) return;
-  const defender = state.enemy[idx];
-  dealDamage(attacker, defender);
-  state.playerUsedAction = true;
-  state.selectedUnitId = null;
-  checkBattleEnd();
-  render();
 
-  if (!state.ended) {
-    setTimeout(() => enemyTurn(), 350);
-  }
-}
+  state.pending.player = { team: "player", attackerId: attacker.id, targetIdx: idx };
+  state.pending.enemy = chooseBestEnemyAction();
 
-function enemyTurn() {
-  if (state.ended) return;
-  state.phase = "enemy";
-  render();
+  const target = state.enemy[idx];
+  addLog(`Player commits ${attacker.name} -> ${target?.name ?? "Empty"}. Enemy also commits action.`);
 
-  const bestAction = chooseBestEnemyAction();
-  if (!bestAction) {
-    addLog("Enemy has no actions.");
-  } else {
-    addLog(`Enemy AI chooses ${bestAction.attacker.name} -> ${bestAction.defender.name} (predicted ${bestAction.damage}${bestAction.lethal ? ", lethal" : ""}).`);
-    dealDamage(bestAction.attacker, bestAction.defender);
-  }
-
-  checkBattleEnd();
-  state.round += 1;
-  state.phase = "player";
-  state.playerUsedAction = false;
-  render();
+  setTimeout(resolveRound, 350);
 }
 
 function checkBattleEnd() {
@@ -246,7 +257,7 @@ function cardHtml(unit, cls, teamName, rowTag) {
 
 function renderGrid(teamName, rootEl, onClick) {
   rootEl.innerHTML = "";
-  const order = teamName === "enemy" ? [3,4,5,0,1,2] : [0,1,2,3,4,5];
+  const order = teamName === "enemy" ? [3, 4, 5, 0, 1, 2] : [0, 1, 2, 3, 4, 5];
   order.forEach((idx, drawIdx) => {
     const u = state[teamName][idx];
     const wrapper = document.createElement("div");
@@ -255,11 +266,11 @@ function renderGrid(teamName, rootEl, onClick) {
     wrapper.innerHTML = cardHtml(u, baseCls, teamName, rowTag);
     const slotDiv = wrapper.firstElementChild;
 
-    if (teamName === "player" && state.phase === "player" && u?.alive && !state.playerUsedAction) {
+    if (teamName === "player" && state.phase === "player-select" && u?.alive) {
       slotDiv.classList.add("selectable");
     }
-    if (teamName === "enemy" && state.phase === "player" && state.selectedUnitId) {
-      const attacker = state.player.find(p => p?.id === state.selectedUnitId);
+    if (teamName === "enemy" && state.phase === "player-select" && state.selectedUnitId) {
+      const attacker = getUnitById("player", state.selectedUnitId);
       if (attacker && computeTargets(attacker).includes(idx)) slotDiv.classList.add("targetable");
     }
     slotDiv.addEventListener("click", () => onClick(idx));
@@ -270,9 +281,11 @@ function renderGrid(teamName, rootEl, onClick) {
 function render() {
   renderGrid("enemy", enemyGrid, onEnemySlotClick);
   renderGrid("player", playerGrid, onPlayerSlotClick);
-  phaseText.textContent = state.ended ? "Battle Ended" : state.phase === "player" ? "Player Turn" : "Enemy Turn";
+  if (state.phase === "player-select") phaseText.textContent = "Choose Action";
+  else if (state.phase === "resolving") phaseText.textContent = "Resolving by Speed";
+  else phaseText.textContent = "Battle Ended";
   roundText.textContent = `Round ${state.round}`;
-  document.getElementById("endTurnBtn").disabled = state.phase !== "player" || state.ended || state.playerUsedAction;
+  document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended;
 }
 
 function addLog(text) {
@@ -282,9 +295,11 @@ function addLog(text) {
 }
 
 document.getElementById("endTurnBtn").addEventListener("click", () => {
-  if (state.phase !== "player" || state.ended) return;
-  addLog("Player skips action.");
-  enemyTurn();
+  if (state.phase !== "player-select" || state.ended) return;
+  state.pending.player = null;
+  state.pending.enemy = chooseBestEnemyAction();
+  addLog("Player chooses to wait this round. Enemy action only.");
+  setTimeout(resolveRound, 350);
 });
 
 document.getElementById("restartBtn").addEventListener("click", initBattle);

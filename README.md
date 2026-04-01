@@ -20,15 +20,20 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 
 ## Features in this demo
 
-- Turn flow: after player performs one action, enemy turn triggers automatically, then next round.
-- Click a friendly unit, then click a highlighted enemy target to attack.
+- Simultaneous command style (Pokemon-like): player chooses action target, enemy AI chooses action target in the same round.
+- Execution order is speed-based (higher `Spd` acts first each round).
+- Click a friendly unit, then click a highlighted enemy target to commit your action.
 - Range rules implemented in demo:
   - `basic` (targets current lane front; if that lane is empty, retargets to nearest lane(s) with enemies; ties can hit both sides)
   - `pierce` (targets front + back in current lane; if lane empty, retargets nearest lane(s))
 - Type multiplier system from provided Typings (implemented for used attack types in this demo: Normal / Plant / Bug).
-- Damage formula (Pokemon-like simplified):
-  - `max(1, (SkillPO + AttackerPO - DefenderDef) * typingMultiplier)`
-- Enemy AI uses a best-action heuristic: prioritize lethal hits, then maximize damage and threat reduction.
+- Pokemon-inspired damage calculation:
+  - level factor
+  - attack/defense ratio
+  - STAB bonus
+  - type multiplier
+  - random factor (0.85 ~ 1.00)
+- Enemy AI uses a best-action heuristic: prioritize lethal hits, then maximize expected damage and threat reduction.
 - Face-to-face battlefield presentation: enemy and player formations are displayed vertically (enemy on top, player on bottom) and face each other.
 - Slide-out right panel with the requested buttons (Base/Cards/Team/Bag/Exit/Locked) as UI shell.
 
