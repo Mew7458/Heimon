@@ -23,8 +23,8 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 - Turn flow: after player performs one action, enemy turn triggers automatically, then next round.
 - Click a friendly unit, then click a highlighted enemy target to attack.
 - Range rules implemented in demo:
-  - `basic` (targets current lane front; if no front then back becomes front)
-  - `pierce` (targets front + back in current lane)
+  - `basic` (targets current lane front; if that lane is empty, retargets to nearest lane(s) with enemies; ties can hit both sides)
+  - `pierce` (targets front + back in current lane; if lane empty, retargets nearest lane(s))
 - Type multiplier system from provided Typings (implemented for used attack types in this demo: Normal / Plant / Bug).
 - Damage formula (Pokemon-like simplified):
   - `max(1, (SkillPO + AttackerPO - DefenderDef) * typingMultiplier)`

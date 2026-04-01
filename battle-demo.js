@@ -77,6 +77,17 @@ function frontLineIndex(team, col) {
   return -1;
 }
 
+
+function nearestColumnsWithFront(team, fromCol) {
+  const available = [0, 1, 2]
+    .map(col => ({ col, idx: frontLineIndex(team, col) }))
+    .filter(item => item.idx >= 0);
+
+  if (available.length === 0) return [];
+  const minDist = Math.min(...available.map(item => Math.abs(item.col - fromCol)));
+  return available.filter(item => Math.abs(item.col - fromCol) === minDist);
+}
+
 function computeTargets(attacker) {
   const enemyTeam = attacker.team === "player" ? "enemy" : "player";
   const col = attacker.slot % 3;
@@ -85,10 +96,22 @@ function computeTargets(attacker) {
   const targets = new Set();
 
   if (attacker.skill.range === "basic") {
-    if (frontIdx >= 0) targets.add(frontIdx);
+    if (frontIdx >= 0) {
+      targets.add(frontIdx);
+    } else {
+      nearestColumnsWithFront(enemyTeam, col).forEach(item => targets.add(item.idx));
+    }
   } else if (attacker.skill.range === "pierce") {
-    if (state[enemyTeam][col]?.alive) targets.add(col);
-    if (state[enemyTeam][col + 3]?.alive) targets.add(col + 3);
+    if (state[enemyTeam][col]?.alive || state[enemyTeam][col + 3]?.alive) {
+      if (state[enemyTeam][col]?.alive) targets.add(col);
+      if (state[enemyTeam][col + 3]?.alive) targets.add(col + 3);
+    } else {
+      nearestColumnsWithFront(enemyTeam, col).forEach(item => {
+        const c = item.col;
+        if (state[enemyTeam][c]?.alive) targets.add(c);
+        if (state[enemyTeam][c + 3]?.alive) targets.add(c + 3);
+      });
+    }
   } else if (attacker.skill.range === "all") {
     state[enemyTeam].forEach((u, idx) => { if (u?.alive) targets.add(idx); });
   } else if (attacker.skill.range === "free-basic") {
