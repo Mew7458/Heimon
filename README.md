@@ -20,7 +20,7 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 
 ## Features in this demo
 
-- Turn flow: player turn -> enemy turn -> next round.
+- Turn flow: after player performs one action, enemy turn triggers automatically, then next round.
 - Click a friendly unit, then click a highlighted enemy target to attack.
 - Range rules implemented in demo:
   - `basic` (targets current lane front; if no front then back becomes front)
@@ -35,3 +35,5 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 ## Run
 
 Open `index.html` directly in a browser.
+
+`Skip Turn` can be used if the player chooses to take no action for that round.

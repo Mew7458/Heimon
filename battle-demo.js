@@ -171,6 +171,10 @@ function onEnemySlotClick(idx) {
   state.selectedUnitId = null;
   checkBattleEnd();
   render();
+
+  if (!state.ended) {
+    setTimeout(() => enemyTurn(), 350);
+  }
 }
 
 function enemyTurn() {
@@ -245,7 +249,7 @@ function render() {
   renderGrid("player", playerGrid, onPlayerSlotClick);
   phaseText.textContent = state.ended ? "Battle Ended" : state.phase === "player" ? "Player Turn" : "Enemy Turn";
   roundText.textContent = `Round ${state.round}`;
-  document.getElementById("endTurnBtn").disabled = state.phase !== "player" || state.ended;
+  document.getElementById("endTurnBtn").disabled = state.phase !== "player" || state.ended || state.playerUsedAction;
 }
 
 function addLog(text) {
@@ -256,6 +260,7 @@ function addLog(text) {
 
 document.getElementById("endTurnBtn").addEventListener("click", () => {
   if (state.phase !== "player" || state.ended) return;
+  addLog("Player skips action.");
   enemyTurn();
 });
 
