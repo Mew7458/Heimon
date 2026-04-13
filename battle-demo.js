@@ -74,8 +74,14 @@ const STARTING_FORMATION = {
   enemy: ["Man", null, "Man", "Cat", "Brig", "Cat"]
 };
 
+const SIM1_FORMATION = {
+  player: ["Sheldor", "Kog", "Khip", "Spiritue", "Sharkuna", "Galladon"],
+  enemy: ["Sheldor", "Kog", "Shizi", "Sharkuna", "Brig", "Cat"]
+};
+
 const MAX_LEVEL = 50;
-const BATTLE_LEVEL = 10;
+const DEFAULT_BATTLE_LEVEL = 10;
+const SIM_BATTLE_LEVEL = 1;
 let state = {};
 
 const playerGrid = document.getElementById("playerGrid");
@@ -115,12 +121,12 @@ function resolveEvolution(cardName, level) {
   return current;
 }
 
-function cloneUnit(cardName, team, slot) {
+function cloneUnit(cardName, team, slot, level) {
   if (!cardName) return null;
-  const level = Math.min(MAX_LEVEL, Math.max(1, BATTLE_LEVEL));
-  const resolvedName = resolveEvolution(cardName, level);
+  const unitLevel = Math.min(MAX_LEVEL, Math.max(1, level));
+  const resolvedName = resolveEvolution(cardName, unitLevel);
   const base = CARDS[resolvedName];
-  const stats = computeStats(base.baseStats, level);
+  const stats = computeStats(base.baseStats, unitLevel);
   return {
     id: `${team}-${slot}-${resolvedName}-${Math.random().toString(36).slice(2, 7)}`,
     name: base.name,
@@ -132,22 +138,34 @@ function cloneUnit(cardName, team, slot) {
     alive: true,
     team,
     slot,
-    level
+    level: unitLevel
   };
 }
 
-function initBattle() {
+function initBattle(mode = "demo") {
+  const isSimulation = mode === "sim1";
+  const formation = isSimulation ? SIM1_FORMATION : STARTING_FORMATION;
+  const level = isSimulation ? SIM_BATTLE_LEVEL : DEFAULT_BATTLE_LEVEL;
+
   state = {
+    mode,
     round: 1,
     phase: "player-select",
-    selectedUnitId: null,
-    player: STARTING_FORMATION.player.map((c, i) => cloneUnit(c, "player", i)),
-    enemy: STARTING_FORMATION.enemy.map((c, i) => cloneUnit(c, "enemy", i)),
+    selected: null,
+    activeTeam: "player",
+    manualBothSides: isSimulation,
+    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level)),
+    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level)),
     pending: { player: null, enemy: null },
     ended: false
   };
+
   logEl.innerHTML = "";
-  addLog("Battle started. Stats are recalculated from Lv1 templates with full roster data loaded.");
+  if (isSimulation) {
+    addLog("模拟战斗1 已启动：全员Lv1，双方全手动操作。当前行动方：Player 1。");
+  } else {
+    addLog("Battle started. Default demo mode (player vs AI).");
+  }
   render();
 }
 
@@ -278,32 +296,76 @@ function resolveRound() {
   state.round += 1;
   state.pending.player = null;
   state.pending.enemy = null;
-  state.selectedUnitId = null;
+  state.selected = null;
   state.phase = state.ended ? "ended" : "player-select";
   render();
 }
 
-function onPlayerSlotClick(idx) {
-  if (state.phase !== "player-select" || state.ended) return;
-  const unit = getUnit("player", idx);
-  if (!unit?.alive) return;
-  state.selectedUnitId = unit.id;
+function resolveManualAction(attacker, targetIdx) {
+  const enemyTeam = attacker.team === "player" ? "enemy" : "player";
+  const defender = state[enemyTeam][targetIdx];
+  if (!defender?.alive) return;
+  dealDamage(attacker, defender);
+  checkBattleEnd();
+  if (!state.ended) {
+    state.activeTeam = state.activeTeam === "player" ? "enemy" : "player";
+    if (state.activeTeam === "player") state.round += 1;
+    state.selected = null;
+    addLog(`手动模式：当前行动方切换为 ${state.activeTeam === "player" ? "Player 1" : "Player 2"}`);
+  }
   render();
 }
 
-function onEnemySlotClick(idx) {
+function onSlotClick(team, idx) {
   if (state.phase !== "player-select" || state.ended) return;
-  const attacker = getUnitById("player", state.selectedUnitId);
-  if (!attacker?.alive) return;
+  const unit = getUnit(team, idx);
+
+  if (!state.manualBothSides) {
+    if (team === "player") {
+      if (!unit?.alive) return;
+      state.selected = { team: "player", id: unit.id };
+      render();
+      return;
+    }
+
+    const attacker = state.selected?.team === "player" ? getUnitById("player", state.selected.id) : null;
+    if (!attacker?.alive || !unit?.alive) return;
+    const valid = computeTargets(attacker);
+    if (!valid.includes(idx)) return;
+
+    state.pending.player = { team: "player", attackerId: attacker.id, targetIdx: idx };
+    state.pending.enemy = chooseBestEnemyAction();
+    addLog(`Player commits ${attacker.name} -> ${unit.name}. Enemy also commits action.`);
+    setTimeout(resolveRound, 250);
+    return;
+  }
+
+  // Manual both sides mode (Simulation 1)
+  if (!state.selected) {
+    if (team !== state.activeTeam || !unit?.alive) return;
+    state.selected = { team, id: unit.id };
+    render();
+    return;
+  }
+
+  const attacker = getUnitById(state.selected.team, state.selected.id);
+  if (!attacker?.alive) {
+    state.selected = null;
+    render();
+    return;
+  }
+
+  if (team === state.activeTeam) {
+    if (!unit?.alive) return;
+    state.selected = { team, id: unit.id };
+    render();
+    return;
+  }
+
+  if (!unit?.alive) return;
   const valid = computeTargets(attacker);
   if (!valid.includes(idx)) return;
-
-  state.pending.player = { team: "player", attackerId: attacker.id, targetIdx: idx };
-  state.pending.enemy = chooseBestEnemyAction();
-
-  const target = state.enemy[idx];
-  addLog(`Player commits ${attacker.name} -> ${target?.name ?? "Empty"}. Enemy also commits action.`);
-  setTimeout(resolveRound, 350);
+  resolveManualAction(attacker, idx);
 }
 
 function checkBattleEnd() {
@@ -312,7 +374,7 @@ function checkBattleEnd() {
   if (!playerAlive || !enemyAlive) {
     state.ended = true;
     state.phase = "ended";
-    addLog(enemyAlive ? "Enemy wins." : "Player wins.");
+    addLog(enemyAlive ? "Player 2 wins." : "Player 1 wins.");
   }
 }
 
@@ -330,7 +392,7 @@ function cardHtml(unit, cls, teamName, rowTag) {
     </div>`;
 }
 
-function renderGrid(teamName, rootEl, onClick) {
+function renderGrid(teamName, rootEl) {
   rootEl.innerHTML = "";
   const order = teamName === "enemy" ? [3, 4, 5, 0, 1, 2] : [0, 1, 2, 3, 4, 5];
   order.forEach((idx, drawIdx) => {
@@ -341,25 +403,34 @@ function renderGrid(teamName, rootEl, onClick) {
     wrapper.innerHTML = cardHtml(u, baseCls, teamName, rowTag);
     const slotDiv = wrapper.firstElementChild;
 
-    if (teamName === "player" && state.phase === "player-select" && u?.alive) slotDiv.classList.add("selectable");
-    if (teamName === "enemy" && state.phase === "player-select" && state.selectedUnitId) {
-      const attacker = getUnitById("player", state.selectedUnitId);
-      if (attacker && computeTargets(attacker).includes(idx)) slotDiv.classList.add("targetable");
+    if (state.phase === "player-select" && u?.alive) {
+      if (!state.selected && teamName === state.activeTeam) slotDiv.classList.add("selectable");
+      const selectedAttacker = state.selected ? getUnitById(state.selected.team, state.selected.id) : null;
+      if (selectedAttacker && teamName !== state.activeTeam && computeTargets(selectedAttacker).includes(idx)) slotDiv.classList.add("targetable");
+      if (selectedAttacker && teamName === state.activeTeam && selectedAttacker.id === u.id) slotDiv.classList.add("selectable");
     }
 
-    slotDiv.addEventListener("click", () => onClick(idx));
+    slotDiv.addEventListener("click", () => onSlotClick(teamName, idx));
     rootEl.appendChild(slotDiv);
   });
 }
 
 function render() {
-  renderGrid("enemy", enemyGrid, onEnemySlotClick);
-  renderGrid("player", playerGrid, onPlayerSlotClick);
-  if (state.phase === "player-select") phaseText.textContent = "Choose Action";
-  else if (state.phase === "resolving") phaseText.textContent = "Resolving by Speed";
-  else phaseText.textContent = "Battle Ended";
+  renderGrid("enemy", enemyGrid);
+  renderGrid("player", playerGrid);
+
+  if (state.phase === "ended") {
+    phaseText.textContent = "Battle Ended";
+  } else if (state.manualBothSides) {
+    phaseText.textContent = `模拟战斗1：${state.activeTeam === "player" ? "Player 1" : "Player 2"} 行动`;
+  } else if (state.phase === "resolving") {
+    phaseText.textContent = "Resolving by Speed";
+  } else {
+    phaseText.textContent = "Choose Action";
+  }
+
   roundText.textContent = `Round ${state.round}`;
-  document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended;
+  document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended || state.manualBothSides;
 }
 
 function addLog(text) {
@@ -369,17 +440,18 @@ function addLog(text) {
 }
 
 document.getElementById("endTurnBtn").addEventListener("click", () => {
-  if (state.phase !== "player-select" || state.ended) return;
+  if (state.phase !== "player-select" || state.ended || state.manualBothSides) return;
   state.pending.player = null;
   state.pending.enemy = chooseBestEnemyAction();
   addLog("Player chooses to wait this round. Enemy action only.");
-  setTimeout(resolveRound, 350);
+  setTimeout(resolveRound, 250);
 });
 
-document.getElementById("restartBtn").addEventListener("click", initBattle);
-document.getElementById("resetBtn").addEventListener("click", initBattle);
+document.getElementById("restartBtn").addEventListener("click", () => initBattle(state.mode || "demo"));
+document.getElementById("sim1Btn").addEventListener("click", () => initBattle("sim1"));
+document.getElementById("resetBtn").addEventListener("click", () => initBattle("demo"));
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.getElementById("sidePanel").classList.toggle("open");
 });
 
-initBattle();
+initBattle("demo");

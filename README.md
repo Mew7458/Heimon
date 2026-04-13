@@ -21,6 +21,7 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 
 ## Features in this demo
 
+- Added `模拟战斗1` entry in the 🏠 panel: all units forced to Lv1, with fully manual control for both sides (no AI), using the requested fixed formations.
 - Includes full base template data for all currently listed units (#001 to #030-2) so future UI screens can reuse one source of truth.
 - Simultaneous command style (Pokemon-like): player chooses action target, enemy AI chooses action target in the same round.
 - Execution order is speed-based (higher `Spd` acts first each round).
