@@ -21,7 +21,10 @@ Implemented a playable turn-based combat prototype based on your requested lineu
 
 ## Features in this demo
 
-- Added `模拟战斗1` entry in the 🏠 panel: all units forced to Lv1, with fully manual control for both sides (no AI), using the requested fixed formations.
+- Added `模拟战斗1` entry in the 🏠 panel: manual control for both sides (no AI), using fixed formations.
+- In `模拟战斗1`, selecting a unit darkens that card and shows inline action buttons (`PO`/`MO`/`Skill` when available) directly on the card.
+- Added a visible vertical SP bar on each card plus `SP/Skill` text so both teams' resources are readable at all times.
+- `模拟战斗1` formations were updated to the requested Lv20 lineups for 玩家1 and 玩家2 with fixed PO/MO type presets.
 - In `模拟战斗1`: each side manually selects **PO / MO / Skill** then target; both sides lock actions and resolve by `Spd` simultaneously.
 - End of each full round gives both sides +10 SP; every 100 SP converts to 1 skill point.
 - Not every unit has a usable special Skill; Skill action requires that unit to have a special skill and at least 1 skill point.

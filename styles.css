@@ -193,3 +193,40 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .passive-heal { box-shadow: inset 0 -30px 0 rgba(80,220,120,0.30); }
 .passive-particle.green { background: #69f28f; }
+
+.selected-card {
+  filter: brightness(0.78);
+  outline: 2px solid #9fa8da;
+}
+.card-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 4px;
+}
+.card-action {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: #1f3258;
+  border: 1px solid #506ea5;
+}
+.card-action.active {
+  background: #355ea5;
+  border-color: #8ab4ff;
+}
+.sp-vertical {
+  position: absolute;
+  right: 4px;
+  top: 6px;
+  width: 8px;
+  height: 46px;
+  border: 1px solid #5b6b8e;
+  border-radius: 4px;
+  background: #1b2845;
+  overflow: hidden;
+}
+.sp-fill {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  background: linear-gradient(to top, #5ec7ff, #9df5ff);
+}

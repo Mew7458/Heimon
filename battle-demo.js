@@ -75,18 +75,18 @@ const STARTING_FORMATION = {
 };
 
 const SIM1_FORMATION = {
-  player: ["Sheldor", "Kog", "Khip", "Spiritue", "Sharkuna", "Galladon"],
-  enemy: ["Sheldor", "Kog", "Shizi", "Sharkuna", "Brig", "Cat"]
+  player: ["Shiking", "Kog", "Khip", "Spiritue", "Sharkuna", "Gosple"],
+  enemy: ["Sheldor", "Kog", "Shiking", "Sharkuna", "Gosple", "Mao"]
 };
 
 const SIM1_ATTACK_TYPES = {
   player: [
-    { PO: "Ground", MO: "Rock" },
+    { PO: "Plant", MO: "Rock" },
     { PO: "Ground", MO: "Water" },
     { PO: "Plant", MO: "Water" },
-    null,
-    null,
-    null
+    { PO: "Phantom", MO: "Phantom" },
+    { PO: "Water", MO: "Water" },
+    { PO: "Bug", MO: "Bug" }
   ],
   enemy: [
     { PO: "Ground", MO: "Rock" },
@@ -104,7 +104,7 @@ const BASIC_MO_POWER = 0;
 
 const MAX_LEVEL = 50;
 const DEFAULT_BATTLE_LEVEL = 10;
-const SIM_BATTLE_LEVEL = 1;
+const SIM_BATTLE_LEVEL = 20;
 let state = {};
 
 const playerGrid = document.getElementById("playerGrid");
@@ -196,7 +196,7 @@ function initBattle(mode = "demo") {
   };
 
   logEl.innerHTML = "";
-  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv1，双方全手动并按顺序选择PO/MO/Skill。");
+  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv20，双方全手动并按顺序选择PO/MO/Skill。");
   else addLog("Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
   render();
@@ -652,17 +652,30 @@ function checkBattleEnd() {
   }
 }
 
-function cardHtml(unit, cls, teamName, rowTag) {
+function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = "PO") {
   if (!unit) return `<div class="slot ${cls}"><div class="rowtag">${rowTag}</div><small>Empty</small></div>`;
   const hpPct = Math.max(0, Math.round((unit.hp / unit.stats.HP) * 100));
-  const face = teamName === "player" ? "↑ Facing Enemy" : "↓ Facing Player";
-  return `<div class="slot ${cls} ${unit.alive ? "" : "dead"}" data-unit-id="${unit.id}">
+  const face = teamName === "player" ? "↑ Facing 玩家2" : "↓ Facing 玩家1";
+  const res = state.resources[teamName];
+  const spPct = Math.max(0, Math.min(100, res.sp));
+  const showSkill = unit.hasSpecialSkill;
+  const actionMenu = isSelected
+    ? `<div class="card-actions">
+        <button class="card-action ${actionMode === "PO" ? "active" : ""}" data-action="PO">PO</button>
+        <button class="card-action ${actionMode === "MO" ? "active" : ""}" data-action="MO">MO</button>
+        ${showSkill ? `<button class="card-action ${actionMode === "SKILL" ? "active" : ""}" data-action="SKILL">Skill</button>` : ""}
+      </div>`
+    : "";
+  return `<div class="slot ${cls} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}">
+      <div class="sp-vertical"><div class="sp-fill" style="height:${spPct}%"></div></div>
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
       <div class="face">${face}</div>
       <small>${unit.ability} | PO:${unit.attackTypes.PO} MO:${unit.attackTypes.MO}</small>
       <div class="hpbar"><div class="hpfill" style="width:${hpPct}%"></div></div>
       <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
+      <small>SP ${res.sp}/100 | Skill ${res.skillPoints}</small>
+      ${actionMenu}
     </div>`;
 }
 
@@ -674,7 +687,8 @@ function renderGrid(teamName, rootEl) {
     const wrapper = document.createElement("div");
     const baseCls = teamName === "player" ? "ally" : "enemy";
     const rowTag = drawIdx < 3 ? (teamName === "enemy" ? "Back Row" : "Front Row") : (teamName === "enemy" ? "Front Row" : "Back Row");
-    wrapper.innerHTML = cardHtml(u, baseCls, teamName, rowTag);
+    const isSelected = !!(state.selected && u && state.selected.id === u.id);
+    wrapper.innerHTML = cardHtml(u, baseCls, teamName, rowTag, isSelected, state.selectedAction);
     const slotDiv = wrapper.firstElementChild;
 
     if (state.phase === "player-select" && u?.alive) {
@@ -687,6 +701,15 @@ function renderGrid(teamName, rootEl) {
         if (teamName !== selectingTeam && validTargets.includes(idx)) slotDiv.classList.add("targetable");
       }
     }
+
+    slotDiv.querySelectorAll(".card-action").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (state.phase !== "player-select" || state.ended) return;
+        state.selectedAction = btn.dataset.action;
+        render();
+      });
+    });
 
     slotDiv.addEventListener("click", () => onSlotClick(teamName, idx));
     slotDiv.addEventListener("contextmenu", (e) => {
@@ -712,9 +735,6 @@ function render() {
   roundText.textContent = `Round ${state.round} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
 
   document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended || state.manualBothSides;
-  document.getElementById("poBtn").disabled = state.phase !== "player-select";
-  document.getElementById("moBtn").disabled = state.phase !== "player-select";
-  document.getElementById("skillBtn").disabled = state.phase !== "player-select";
 }
 
 function addLog(text) {
