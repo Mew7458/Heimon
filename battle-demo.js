@@ -158,6 +158,7 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
     baseStats: { ...base.baseStats },
     stats,
     skill: { ...base.skill },
+    ability: base.ability || "None",
     hasSpecialSkill: SPECIAL_SKILLS.has(base.name),
     attackTypes: {
       PO: attackTypePreset?.PO || defaultType,
@@ -197,6 +198,7 @@ function initBattle(mode = "demo") {
   logEl.innerHTML = "";
   if (isSimulation) addLog("模拟战斗1 已启动：全员Lv1，双方全手动并按顺序选择PO/MO/Skill。");
   else addLog("Battle started. Default demo mode (player vs AI).");
+  applyBattleStartPassives();
   render();
 }
 
@@ -282,12 +284,206 @@ function canUseSkill(team, attacker) {
   return attacker.hasSpecialSkill && state.resources[team].skillPoints >= 1;
 }
 
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function getUnitCardElement(unitId) {
+  return document.querySelector(`[data-unit-id="${unitId}"]`);
+}
+
+function spawnParticles(targetEl, colorClass) {
+  if (!targetEl) return;
+  for (let i = 0; i < 4; i += 1) {
+    const particle = document.createElement("span");
+    particle.className = `passive-particle ${colorClass}`;
+    particle.style.left = `${20 + Math.random() * 60}%`;
+    targetEl.appendChild(particle);
+    setTimeout(() => particle.remove(), 700);
+  }
+}
+
+
+function healUnit(unit, amount, reason) {
+  if (!unit?.alive) return;
+  const heal = Math.max(1, Math.round(amount));
+  const before = unit.hp;
+  unit.hp = Math.min(unit.stats.HP, unit.hp + heal);
+  const actual = unit.hp - before;
+  if (actual <= 0) return;
+  addLog(`Heal: ${unit.name} +${actual} HP (${reason}).`);
+  const el = getUnitCardElement(unit.id);
+  if (el) {
+    el.classList.add("passive-heal");
+    spawnParticles(el, "green");
+    setTimeout(() => el.classList.remove("passive-heal"), 650);
+  }
+}
+
+function applyBattleStartPassives() {
+  ["player", "enemy"].forEach(team => {
+    const teamUnits = state[team].filter(u => u?.alive);
+    teamUnits.forEach(unit => {
+      if (unit.ability?.includes("Down the Wind")) {
+        const others = teamUnits.filter(u => u.id !== unit.id && u.types.includes("Wind")).length;
+        if (others > 0) {
+          unit.stats.Spd = Math.max(1, Math.round(unit.stats.Spd * (1 + others * 0.05)));
+          addLog(`Passive Triggered: Down the Wind on ${unit.name} (+${others * 5}% Spd).`);
+        }
+      }
+    });
+  });
+}
+
+async function playAttackAnimation(attacker, defender, action) {
+  const attackerEl = getUnitCardElement(attacker.id);
+  const defenderEl = getUnitCardElement(defender.id);
+  if (!attackerEl || !defenderEl) return;
+
+  if (action.kind === "PO") {
+    attackerEl.classList.add(attacker.team === "player" ? "attack-dash-player" : "attack-dash-enemy");
+    await sleep(180);
+    attackerEl.classList.remove("attack-dash-player", "attack-dash-enemy");
+    defenderEl.classList.add("target-hit");
+    await sleep(180);
+    defenderEl.classList.remove("target-hit");
+  } else if (action.kind === "MO") {
+    attackerEl.classList.add("attack-shake");
+    await sleep(180);
+    attackerEl.classList.remove("attack-shake");
+    defenderEl.classList.add("target-hit", "target-magic");
+    await sleep(220);
+    defenderEl.classList.remove("target-hit", "target-magic");
+  } else {
+    defenderEl.classList.add("target-hit");
+    await sleep(180);
+    defenderEl.classList.remove("target-hit");
+  }
+}
+
+function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
+  const attackerEl = getUnitCardElement(attacker.id);
+
+  if (attacker.ability?.includes("Engine") && damage > 0) {
+    attacker.stats.Spd = Math.max(1, Math.round(attacker.stats.Spd * 1.1));
+    addLog(`Passive Triggered: Engine on ${attacker.name} (+10% Spd).`);
+    if (attackerEl) {
+      attackerEl.classList.add("passive-engine");
+      spawnParticles(attackerEl, "gray");
+      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
+    }
+  }
+  if (attacker.ability?.includes("Fear") && Math.random() < 0.25) {
+    attacker.stats.Spd += 5;
+    addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd this battle).`);
+    if (attackerEl) {
+      attackerEl.classList.add("passive-engine");
+      spawnParticles(attackerEl, "gray");
+      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
+    }
+  }
+
+  if (attacker.ability?.includes("Harden") && Math.random() < 0.25) {
+    attacker.stats.Def += 5;
+    addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def this battle).`);
+    if (attackerEl) {
+      attackerEl.classList.add("passive-engine");
+      spawnParticles(attackerEl, "gray");
+      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
+    }
+  }
+
+  if (attacker.ability?.includes("Absorb") && damage > 0) healUnit(attacker, Math.max(1, damage * 0.1), "Absorb");
+  if (attacker.ability?.includes("Drain") && damage > 0) healUnit(attacker, Math.max(1, damage * 0.2), "Drain");
+
+  if (defeatedTarget && attacker.ability?.includes("Bloodthirst+")) {
+    attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.2));
+    addLog(`Passive Triggered: Bloodthirst+ on ${attacker.name} (+20% PO).`);
+    if (attackerEl) {
+      attackerEl.classList.add("passive-bloodthirst");
+      spawnParticles(attackerEl, "red");
+      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
+    }
+  } else if (defeatedTarget && attacker.ability?.includes("Bloodthirst")) {
+    attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.1));
+    addLog(`Passive Triggered: Bloodthirst on ${attacker.name} (+10% PO).`);
+    if (attackerEl) {
+      attackerEl.classList.add("passive-bloodthirst");
+      spawnParticles(attackerEl, "red");
+      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
+    }
+  }
+
+  if (defeatedTarget && attacker.ability?.includes("Our Tides")) {
+    const allies = state[attacker.team].filter(u => u?.alive);
+    allies.forEach(u => { u.stats.Spd += 2; });
+    addLog(`Passive Triggered: Our Tides on ${attacker.name} (+2 Spd to allies).`);
+  }
+
+  if (attacker.ability?.includes("Trap Jaws") && damage > 0 && defender.alive) {
+    defender.stats.Spd = Math.max(1, defender.stats.Spd - 2);
+    addLog(`Passive Triggered: Trap Jaws on ${defender.name} (-2 Spd).`);
+  }
+
+  if (defender.ability?.includes("Thorns") && damage > 0 && attacker.alive) {
+    const reflect = Math.max(1, Math.round(damage * 0.05));
+    attacker.hp = Math.max(0, attacker.hp - reflect);
+    addLog(`Passive Triggered: Thorns reflects ${reflect} to ${attacker.name}.`);
+    if (attacker.hp <= 0) attacker.alive = false;
+  }
+
+  if (defender.ability?.includes("Resilience") && damage > 0) {
+    defender.stats.PO = Math.max(1, Math.round(defender.stats.PO * 1.02));
+    defender.stats.Def = Math.max(0, Math.round(defender.stats.Def * 1.05));
+    defender.stats.MR = Math.max(0, Math.round(defender.stats.MR * 1.05));
+    addLog(`Passive Triggered: Resilience on ${defender.name} (PO/Def/MR up).`);
+  }
+
+  if (defender.ability?.includes("Adaption Recover") && damage > 0) {
+    if (damage < defender.stats.HP * 0.25) {
+      defender.stats.Def = Math.max(0, Math.round(defender.stats.Def * 1.05));
+      addLog(`Passive Triggered: Adaption Recover on ${defender.name} (+5% Def).`);
+    }
+  }
+
+  if (attacker.ability?.includes("Spread and Consume") && defeatedTarget) {
+    const allies = state[attacker.team].filter(u => u?.alive);
+    allies.forEach(u => healUnit(u, Math.max(1, (u.stats.HP - u.hp) * 0.05), "Spread and Consume"));
+    addLog("Passive Triggered: Spread and Consume team recovery.");
+  }
+
+  if (attacker.ability?.includes("Rest") && action.kind === "MO" && damage === 0) {
+    healUnit(attacker, attacker.stats.HP * 0.05, "Rest");
+  }
+}
+
+
 function computeFinalDamage(attacker, defender, action) {
   if (action.kind === "TD") return Math.max(1, Math.round(action.power));
+  if (attacker.ability?.includes("Shell of certain Creation")) {
+    const missingPct = 1 - (attacker.hp / Math.max(1, attacker.stats.HP));
+    const poPenalty = Math.min(0.35, missingPct);
+    const spdBonus = missingPct * 2;
+    attacker.stats.Spd = Math.max(1, Math.round(attacker.baseStats.Spd * (1 + spdBonus)));
+    attacker.stats.PO = Math.max(1, Math.round(attacker.baseStats.PO * (1 - poPenalty)));
+  }
+
   const isMagical = action.kind === "MO";
   const offense = isMagical ? attacker.stats.MO : attacker.stats.PO;
   const raw = action.power + offense;
-  const typed = raw * typeMultiplier(action.attackType, defender.types);
+  let typed = raw * typeMultiplier(action.attackType, defender.types);
+
+  if (attacker.ability?.includes("Knight's Soul") && defender.types.some(t => t !== "Normal")) typed *= 1.1;
+  if (attacker.ability?.includes("First Strike")) {
+    const delta = Math.max(0, attacker.stats.Spd - defender.stats.Spd);
+    typed *= (1 + delta / 100);
+  }
+  if (defender.ability?.includes("Indistinct") && action.kind === "PO" && attacker.stats.HP < defender.stats.HP) {
+    addLog(`Passive Triggered: Indistinct blocks PO on ${defender.name}.`);
+    return 0;
+  }
+  if (defender.ability?.includes("Creation of something Beyond") && Math.random() < 0.2) {
+    addLog(`Passive Triggered: Evasiveness on ${defender.name}, attack missed.`);
+    return 0;
+  }
   if (typed <= 0) return 0;
   const defenseStat = isMagical ? defender.stats.MR : defender.stats.Def;
   const reduced = typed * 30 / (30 + Math.max(0, defenseStat));
@@ -300,7 +496,9 @@ function dealDamage(attacker, defender, action) {
   if (defender.hp <= 0) defender.alive = false;
   addLog(`${attacker.team.toUpperCase()} ${attacker.name} ${action.kind}(${action.attackType}) -> ${defender.name} for ${dmg}.`);
   if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
+  triggerPassives(attacker, defender, dmg, !defender.alive, action);
 }
+
 
 function chooseBestEnemyAction() {
   const enemyCandidates = state.enemy.filter(u => u?.alive);
@@ -338,7 +536,7 @@ function grantRoundResources() {
   addLog(`Round end: P1 SP ${state.resources.player.sp} / Skill ${state.resources.player.skillPoints}, P2 SP ${state.resources.enemy.sp} / Skill ${state.resources.enemy.skillPoints}`);
 }
 
-function resolveRound() {
+async function resolveRound() {
   state.phase = "resolving";
   render();
 
@@ -352,17 +550,19 @@ function resolveRound() {
   }).filter(Boolean).filter(a => a.defender?.alive);
 
   actions.sort((a, b) => b.speed - a.speed || (Math.random() < 0.5 ? -1 : 1));
-  actions.forEach(action => {
-    if (!action.attacker.alive || !action.defender.alive) return;
+  for (const action of actions) {
+    if (!action.attacker.alive || !action.defender.alive) continue;
     if (action.actionMode === "SKILL") {
       if (canUseSkill(action.team, action.attacker)) {
         state.resources[action.team].skillPoints -= 1;
+        await playAttackAnimation(action.attacker, action.defender, action.model);
         dealDamage(action.attacker, action.defender, action.model);
       }
     } else {
+      await playAttackAnimation(action.attacker, action.defender, action.model);
       dealDamage(action.attacker, action.defender, action.model);
     }
-  });
+  }
 
   checkBattleEnd();
   if (!state.ended) {
@@ -456,11 +656,11 @@ function cardHtml(unit, cls, teamName, rowTag) {
   if (!unit) return `<div class="slot ${cls}"><div class="rowtag">${rowTag}</div><small>Empty</small></div>`;
   const hpPct = Math.max(0, Math.round((unit.hp / unit.stats.HP) * 100));
   const face = teamName === "player" ? "↑ Facing Enemy" : "↓ Facing Player";
-  return `<div class="slot ${cls} ${unit.alive ? "" : "dead"}">
+  return `<div class="slot ${cls} ${unit.alive ? "" : "dead"}" data-unit-id="${unit.id}">
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
       <div class="face">${face}</div>
-      <small>PO:${unit.attackTypes.PO} MO:${unit.attackTypes.MO}</small>
+      <small>${unit.ability} | PO:${unit.attackTypes.PO} MO:${unit.attackTypes.MO}</small>
       <div class="hpbar"><div class="hpfill" style="width:${hpPct}%"></div></div>
       <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
     </div>`;
@@ -489,6 +689,13 @@ function renderGrid(teamName, rootEl) {
     }
 
     slotDiv.addEventListener("click", () => onSlotClick(teamName, idx));
+    slotDiv.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      if (state.phase !== "player-select" || state.ended) return;
+      state.selected = null;
+      addLog("Selection cancelled.");
+      render();
+    });
     rootEl.appendChild(slotDiv);
   });
 }
