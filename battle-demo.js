@@ -79,6 +79,29 @@ const SIM1_FORMATION = {
   enemy: ["Sheldor", "Kog", "Shizi", "Sharkuna", "Brig", "Cat"]
 };
 
+const SIM1_ATTACK_TYPES = {
+  player: [
+    { PO: "Ground", MO: "Rock" },
+    { PO: "Ground", MO: "Water" },
+    { PO: "Plant", MO: "Water" },
+    null,
+    null,
+    null
+  ],
+  enemy: [
+    { PO: "Ground", MO: "Rock" },
+    { PO: "Water", MO: "Ground" },
+    { PO: "Plant", MO: "Rock" },
+    { PO: "Water", MO: "Water" },
+    { PO: "Bug", MO: "Bug" },
+    { PO: "Normal", MO: "Normal" }
+  ]
+};
+
+const SPECIAL_SKILLS = new Set(["Khip", "Sheldon", "Progenlion", "The Thing", "A Certain Creation - The Eye"]);
+const BASIC_PO_POWER = 0;
+const BASIC_MO_POWER = 0;
+
 const MAX_LEVEL = 50;
 const DEFAULT_BATTLE_LEVEL = 10;
 const SIM_BATTLE_LEVEL = 1;
@@ -121,12 +144,13 @@ function resolveEvolution(cardName, level) {
   return current;
 }
 
-function cloneUnit(cardName, team, slot, level) {
+function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
   if (!cardName) return null;
   const unitLevel = Math.min(MAX_LEVEL, Math.max(1, level));
   const resolvedName = resolveEvolution(cardName, unitLevel);
   const base = CARDS[resolvedName];
   const stats = computeStats(base.baseStats, unitLevel);
+  const defaultType = base.types[0];
   return {
     id: `${team}-${slot}-${resolvedName}-${Math.random().toString(36).slice(2, 7)}`,
     name: base.name,
@@ -134,6 +158,11 @@ function cloneUnit(cardName, team, slot, level) {
     baseStats: { ...base.baseStats },
     stats,
     skill: { ...base.skill },
+    hasSpecialSkill: SPECIAL_SKILLS.has(base.name),
+    attackTypes: {
+      PO: attackTypePreset?.PO || defaultType,
+      MO: attackTypePreset?.MO || defaultType
+    },
     hp: stats.HP,
     alive: true,
     team,
@@ -152,20 +181,22 @@ function initBattle(mode = "demo") {
     round: 1,
     phase: "player-select",
     selected: null,
+    selectedAction: "PO",
     activeTeam: "player",
     manualBothSides: isSimulation,
-    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level)),
-    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level)),
+    resources: {
+      player: { sp: 0, skillPoints: 0 },
+      enemy: { sp: 0, skillPoints: 0 }
+    },
+    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, isSimulation ? SIM1_ATTACK_TYPES.player[i] : null)),
+    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, isSimulation ? SIM1_ATTACK_TYPES.enemy[i] : null)),
     pending: { player: null, enemy: null },
     ended: false
   };
 
   logEl.innerHTML = "";
-  if (isSimulation) {
-    addLog("模拟战斗1 已启动：全员Lv1，双方全手动操作。当前行动方：Player 1。");
-  } else {
-    addLog("Battle started. Default demo mode (player vs AI).");
-  }
+  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv1，双方全手动并按顺序选择PO/MO/Skill。");
+  else addLog("Battle started. Default demo mode (player vs AI).");
   render();
 }
 
@@ -186,19 +217,19 @@ function nearestColumnsWithFront(team, fromCol) {
   return available.filter(item => Math.abs(item.col - fromCol) === minDist);
 }
 
-function computeTargets(attacker) {
+function computeTargetsForRange(attacker, range) {
   const enemyTeam = attacker.team === "player" ? "enemy" : "player";
   const col = attacker.slot % 3;
   const frontIdx = frontLineIndex(enemyTeam, col);
   const allFront = [0, 1, 2].map(c => frontLineIndex(enemyTeam, c)).filter(i => i >= 0);
   const targets = new Set();
 
-  if (attacker.skill.range === "self") {
+  if (range === "self") {
     targets.add(attacker.slot);
-  } else if (attacker.skill.range === "basic") {
+  } else if (range === "basic") {
     if (frontIdx >= 0) targets.add(frontIdx);
     else nearestColumnsWithFront(enemyTeam, col).forEach(item => targets.add(item.idx));
-  } else if (attacker.skill.range === "pierce") {
+  } else if (range === "pierce") {
     if (state[enemyTeam][col]?.alive || state[enemyTeam][col + 3]?.alive) {
       if (state[enemyTeam][col]?.alive) targets.add(col);
       if (state[enemyTeam][col + 3]?.alive) targets.add(col + 3);
@@ -208,9 +239,9 @@ function computeTargets(attacker) {
         if (state[enemyTeam][item.col + 3]?.alive) targets.add(item.col + 3);
       });
     }
-  } else if (attacker.skill.range === "all") {
+  } else if (range === "all") {
     state[enemyTeam].forEach((u, idx) => { if (u?.alive) targets.add(idx); });
-  } else if (attacker.skill.range === "free-basic") {
+  } else if (range === "free-basic") {
     allFront.forEach(i => targets.add(i));
   }
 
@@ -231,41 +262,61 @@ function typeMultiplier(attackType, defenderTypes) {
   return mult;
 }
 
-function computeFinalDamage(attacker, defender) {
-  const kind = attacker.skill.damageKind;
-  if (kind === "TD") return Math.max(1, Math.round(attacker.skill.power));
+function actionToDamageModel(attacker, actionMode) {
+  if (actionMode === "PO") {
+    return { kind: "PO", power: BASIC_PO_POWER, attackType: attacker.attackTypes.PO, range: "basic" };
+  }
+  if (actionMode === "MO") {
+    return { kind: "MO", power: BASIC_MO_POWER, attackType: attacker.attackTypes.MO, range: "basic" };
+  }
+  return {
+    kind: attacker.skill.damageKind,
+    power: attacker.skill.power,
+    attackType: attacker.skill.type,
+    range: attacker.skill.range,
+    name: attacker.skill.name
+  };
+}
 
-  const isMagical = kind === "MO";
+function canUseSkill(team, attacker) {
+  return attacker.hasSpecialSkill && state.resources[team].skillPoints >= 1;
+}
+
+function computeFinalDamage(attacker, defender, action) {
+  if (action.kind === "TD") return Math.max(1, Math.round(action.power));
+  const isMagical = action.kind === "MO";
   const offense = isMagical ? attacker.stats.MO : attacker.stats.PO;
-  const raw = attacker.skill.power + offense;
-  const typed = raw * typeMultiplier(attacker.skill.type, defender.types);
+  const raw = action.power + offense;
+  const typed = raw * typeMultiplier(action.attackType, defender.types);
   if (typed <= 0) return 0;
-
   const defenseStat = isMagical ? defender.stats.MR : defender.stats.Def;
   const reduced = typed * 30 / (30 + Math.max(0, defenseStat));
   return Math.max(1, Math.round(reduced));
 }
 
-function dealDamage(attacker, defender) {
-  const dmg = computeFinalDamage(attacker, defender);
+function dealDamage(attacker, defender, action) {
+  const dmg = computeFinalDamage(attacker, defender, action);
   defender.hp = Math.max(0, defender.hp - dmg);
   if (defender.hp <= 0) defender.alive = false;
-  addLog(`${attacker.team.toUpperCase()} ${attacker.name} uses ${attacker.skill.name} on ${defender.name} for ${dmg} damage.`);
+  addLog(`${attacker.team.toUpperCase()} ${attacker.name} ${action.kind}(${action.attackType}) -> ${defender.name} for ${dmg}.`);
   if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
 }
 
 function chooseBestEnemyAction() {
-  const enemyCandidates = state.enemy.filter(u => u?.alive && computeTargets(u).length > 0);
+  const enemyCandidates = state.enemy.filter(u => u?.alive);
   let best = null;
   enemyCandidates.forEach(attacker => {
-    computeTargets(attacker).forEach(targetIdx => {
+    const action = actionToDamageModel(attacker, "PO");
+    computeTargetsForRange(attacker, action.range).forEach(targetIdx => {
       const defender = state.player[targetIdx];
       if (!defender?.alive) return;
-      const damage = computeFinalDamage(attacker, defender);
+      const damage = computeFinalDamage(attacker, defender, action);
       const lethal = damage >= defender.hp ? 1 : 0;
       const threat = defender.stats.PO * 2 + defender.stats.Spd;
       const score = lethal * 10000 + damage * 100 + threat;
-      if (!best || score > best.score) best = { team: "enemy", attackerId: attacker.id, targetIdx, score };
+      if (!best || score > best.score) {
+        best = { team: "enemy", attackerId: attacker.id, targetIdx, actionMode: "PO", score };
+      }
     });
   });
   return best;
@@ -275,74 +326,88 @@ function getUnitById(team, id) {
   return state[team].find(u => u?.id === id);
 }
 
+function grantRoundResources() {
+  ["player", "enemy"].forEach(team => {
+    const res = state.resources[team];
+    res.sp += 10;
+    while (res.sp >= 100) {
+      res.sp -= 100;
+      res.skillPoints += 1;
+    }
+  });
+  addLog(`Round end: P1 SP ${state.resources.player.sp} / Skill ${state.resources.player.skillPoints}, P2 SP ${state.resources.enemy.sp} / Skill ${state.resources.enemy.skillPoints}`);
+}
+
 function resolveRound() {
   state.phase = "resolving";
   render();
 
   const actions = [state.pending.player, state.pending.enemy].filter(Boolean).map(action => {
     const attacker = getUnitById(action.team, action.attackerId);
+    if (!attacker?.alive) return null;
+    const model = actionToDamageModel(attacker, action.actionMode);
     const defenderTeam = action.team === "player" ? "enemy" : "player";
     const defender = state[defenderTeam][action.targetIdx];
-    return { ...action, attacker, defender, speed: attacker?.stats.Spd ?? 0 };
-  }).filter(a => a.attacker?.alive && a.defender?.alive);
+    return { ...action, attacker, defender, model, speed: attacker.stats.Spd };
+  }).filter(Boolean).filter(a => a.defender?.alive);
 
   actions.sort((a, b) => b.speed - a.speed || (Math.random() < 0.5 ? -1 : 1));
   actions.forEach(action => {
     if (!action.attacker.alive || !action.defender.alive) return;
-    dealDamage(action.attacker, action.defender);
+    if (action.actionMode === "SKILL") {
+      if (canUseSkill(action.team, action.attacker)) {
+        state.resources[action.team].skillPoints -= 1;
+        dealDamage(action.attacker, action.defender, action.model);
+      }
+    } else {
+      dealDamage(action.attacker, action.defender, action.model);
+    }
   });
 
   checkBattleEnd();
-  state.round += 1;
+  if (!state.ended) {
+    grantRoundResources();
+    state.round += 1;
+  }
   state.pending.player = null;
   state.pending.enemy = null;
   state.selected = null;
+  state.selectedAction = "PO";
+  state.activeTeam = "player";
   state.phase = state.ended ? "ended" : "player-select";
   render();
 }
 
-function resolveManualAction(attacker, targetIdx) {
-  const enemyTeam = attacker.team === "player" ? "enemy" : "player";
-  const defender = state[enemyTeam][targetIdx];
-  if (!defender?.alive) return;
-  dealDamage(attacker, defender);
-  checkBattleEnd();
-  if (!state.ended) {
-    state.activeTeam = state.activeTeam === "player" ? "enemy" : "player";
-    if (state.activeTeam === "player") state.round += 1;
-    state.selected = null;
-    addLog(`手动模式：当前行动方切换为 ${state.activeTeam === "player" ? "Player 1" : "Player 2"}`);
+function commitTeamAction(team, attacker, targetIdx, actionMode) {
+  const pendingAction = { team, attackerId: attacker.id, targetIdx, actionMode };
+  state.pending[team] = pendingAction;
+
+  if (!state.manualBothSides) {
+    state.pending.enemy = chooseBestEnemyAction();
+    setTimeout(resolveRound, 250);
+    return;
   }
-  render();
+
+  state.activeTeam = team === "player" ? "enemy" : "player";
+  state.selected = null;
+  state.selectedAction = "PO";
+
+  if (state.pending.player && state.pending.enemy) {
+    addLog("双方行动已选定，按速度结算。");
+    setTimeout(resolveRound, 250);
+  } else {
+    addLog(`${team === "player" ? "Player 1" : "Player 2"} 已锁定行动，等待对方。`);
+    render();
+  }
 }
 
 function onSlotClick(team, idx) {
   if (state.phase !== "player-select" || state.ended) return;
   const unit = getUnit(team, idx);
 
-  if (!state.manualBothSides) {
-    if (team === "player") {
-      if (!unit?.alive) return;
-      state.selected = { team: "player", id: unit.id };
-      render();
-      return;
-    }
-
-    const attacker = state.selected?.team === "player" ? getUnitById("player", state.selected.id) : null;
-    if (!attacker?.alive || !unit?.alive) return;
-    const valid = computeTargets(attacker);
-    if (!valid.includes(idx)) return;
-
-    state.pending.player = { team: "player", attackerId: attacker.id, targetIdx: idx };
-    state.pending.enemy = chooseBestEnemyAction();
-    addLog(`Player commits ${attacker.name} -> ${unit.name}. Enemy also commits action.`);
-    setTimeout(resolveRound, 250);
-    return;
-  }
-
-  // Manual both sides mode (Simulation 1)
+  const selectingTeam = state.manualBothSides ? state.activeTeam : "player";
   if (!state.selected) {
-    if (team !== state.activeTeam || !unit?.alive) return;
+    if (team !== selectingTeam || !unit?.alive) return;
     state.selected = { team, id: unit.id };
     render();
     return;
@@ -355,7 +420,7 @@ function onSlotClick(team, idx) {
     return;
   }
 
-  if (team === state.activeTeam) {
+  if (team === selectingTeam) {
     if (!unit?.alive) return;
     state.selected = { team, id: unit.id };
     render();
@@ -363,9 +428,18 @@ function onSlotClick(team, idx) {
   }
 
   if (!unit?.alive) return;
-  const valid = computeTargets(attacker);
+  const actionMode = state.selectedAction;
+  if (actionMode === "SKILL" && !canUseSkill(selectingTeam, attacker)) {
+    addLog(`${attacker.name} cannot use Skill now (need special skill + 1 skill point).`);
+    return;
+  }
+
+  const actionModel = actionToDamageModel(attacker, actionMode);
+  const valid = computeTargetsForRange(attacker, actionModel.range);
   if (!valid.includes(idx)) return;
-  resolveManualAction(attacker, idx);
+
+  addLog(`${selectingTeam === "player" ? "Player 1" : "Player 2"} selects ${attacker.name} ${actionMode} -> ${unit.name}`);
+  commitTeamAction(selectingTeam, attacker, idx, actionMode);
 }
 
 function checkBattleEnd() {
@@ -386,7 +460,7 @@ function cardHtml(unit, cls, teamName, rowTag) {
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
       <div class="face">${face}</div>
-      <small>${unit.types.join("/")} | ${unit.skill.name}</small>
+      <small>PO:${unit.attackTypes.PO} MO:${unit.attackTypes.MO}</small>
       <div class="hpbar"><div class="hpfill" style="width:${hpPct}%"></div></div>
       <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
     </div>`;
@@ -404,10 +478,14 @@ function renderGrid(teamName, rootEl) {
     const slotDiv = wrapper.firstElementChild;
 
     if (state.phase === "player-select" && u?.alive) {
-      if (!state.selected && teamName === state.activeTeam) slotDiv.classList.add("selectable");
+      const selectingTeam = state.manualBothSides ? state.activeTeam : "player";
+      if (!state.selected && teamName === selectingTeam) slotDiv.classList.add("selectable");
       const selectedAttacker = state.selected ? getUnitById(state.selected.team, state.selected.id) : null;
-      if (selectedAttacker && teamName !== state.activeTeam && computeTargets(selectedAttacker).includes(idx)) slotDiv.classList.add("targetable");
-      if (selectedAttacker && teamName === state.activeTeam && selectedAttacker.id === u.id) slotDiv.classList.add("selectable");
+      if (selectedAttacker) {
+        const model = actionToDamageModel(selectedAttacker, state.selectedAction);
+        const validTargets = computeTargetsForRange(selectedAttacker, model.range);
+        if (teamName !== selectingTeam && validTargets.includes(idx)) slotDiv.classList.add("targetable");
+      }
     }
 
     slotDiv.addEventListener("click", () => onSlotClick(teamName, idx));
@@ -419,18 +497,17 @@ function render() {
   renderGrid("enemy", enemyGrid);
   renderGrid("player", playerGrid);
 
-  if (state.phase === "ended") {
-    phaseText.textContent = "Battle Ended";
-  } else if (state.manualBothSides) {
-    phaseText.textContent = `模拟战斗1：${state.activeTeam === "player" ? "Player 1" : "Player 2"} 行动`;
-  } else if (state.phase === "resolving") {
-    phaseText.textContent = "Resolving by Speed";
-  } else {
-    phaseText.textContent = "Choose Action";
-  }
+  const modeText = state.manualBothSides
+    ? `模拟战斗1：${state.activeTeam === "player" ? "Player 1" : "Player 2"} 选择 ${state.selectedAction}`
+    : (state.phase === "resolving" ? "Resolving by Speed" : "Choose Action");
 
-  roundText.textContent = `Round ${state.round}`;
+  phaseText.textContent = state.phase === "ended" ? "Battle Ended" : modeText;
+  roundText.textContent = `Round ${state.round} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
+
   document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended || state.manualBothSides;
+  document.getElementById("poBtn").disabled = state.phase !== "player-select";
+  document.getElementById("moBtn").disabled = state.phase !== "player-select";
+  document.getElementById("skillBtn").disabled = state.phase !== "player-select";
 }
 
 function addLog(text) {
@@ -438,6 +515,10 @@ function addLog(text) {
   logEl.innerHTML += `<div>[${time}] ${text}</div>`;
   logEl.scrollTop = logEl.scrollHeight;
 }
+
+document.getElementById("poBtn").addEventListener("click", () => { state.selectedAction = "PO"; render(); });
+document.getElementById("moBtn").addEventListener("click", () => { state.selectedAction = "MO"; render(); });
+document.getElementById("skillBtn").addEventListener("click", () => { state.selectedAction = "SKILL"; render(); });
 
 document.getElementById("endTurnBtn").addEventListener("click", () => {
   if (state.phase !== "player-select" || state.ended || state.manualBothSides) return;
