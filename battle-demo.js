@@ -75,26 +75,26 @@ const STARTING_FORMATION = {
 };
 
 const SIM1_FORMATION = {
-  player: ["Shiking", "Kog", "Khip", "Spiritue", "Sharkuna", "Gosple"],
-  enemy: ["Sheldor", "Kog", "Shiking", "Sharkuna", "Gosple", "Mao"]
+  player: ["Sheldon", "Kog", "Khip", "Spiripile", "Snight", "Threlladon"],
+  enemy: ["Snight", "Madalion", "Sheldon", "Threlladon", "Khip", "Washie"]
 };
 
 const SIM1_ATTACK_TYPES = {
   player: [
-    { PO: "Plant", MO: "Rock" },
+    { PO: "Ground", MO: "Dragon" },
     { PO: "Ground", MO: "Water" },
     { PO: "Plant", MO: "Water" },
     { PO: "Phantom", MO: "Phantom" },
     { PO: "Water", MO: "Water" },
-    { PO: "Bug", MO: "Bug" }
+    { PO: "Dragon", MO: "Dragon" }
   ],
   enemy: [
-    { PO: "Ground", MO: "Rock" },
-    { PO: "Water", MO: "Ground" },
-    { PO: "Plant", MO: "Rock" },
     { PO: "Water", MO: "Water" },
-    { PO: "Bug", MO: "Bug" },
-    { PO: "Normal", MO: "Normal" }
+    { PO: "Poison", MO: "Plant" },
+    { PO: "Dragon", MO: "Ground" },
+    { PO: "Dragon", MO: "Dragon" },
+    { PO: "Plant", MO: "Water" },
+    { PO: "Water", MO: "Water" },
   ]
 };
 
@@ -104,7 +104,7 @@ const BASIC_MO_POWER = 0;
 
 const MAX_LEVEL = 50;
 const DEFAULT_BATTLE_LEVEL = 10;
-const SIM_BATTLE_LEVEL = 20;
+const SIM_BATTLE_LEVEL = 30;
 let state = {};
 
 const playerGrid = document.getElementById("playerGrid");
@@ -166,6 +166,7 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
     },
     hp: stats.HP,
     alive: true,
+    persistentPassiveFx: new Set(),
     team,
     slot,
     level: unitLevel
@@ -196,7 +197,7 @@ function initBattle(mode = "demo") {
   };
 
   logEl.innerHTML = "";
-  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv20，双方全手动并按顺序选择PO/MO/Skill。");
+  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv30，双方全手动并按顺序选择PO/MO/Skill。");
   else addLog("Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
   render();
@@ -301,6 +302,21 @@ function spawnParticles(targetEl, colorClass) {
   }
 }
 
+function applyPassiveFx(unit, cssClass, colorClass, persistent = false) {
+  if (!unit) return;
+  const el = getUnitCardElement(unit.id);
+  if (persistent) unit.persistentPassiveFx?.add(cssClass);
+  if (!el) return;
+  el.classList.add(cssClass);
+  spawnParticles(el, colorClass);
+  if (!persistent) setTimeout(() => el.classList.remove(cssClass), 650);
+}
+
+function clearPassiveFx(unit) {
+  if (!unit?.persistentPassiveFx) return;
+  unit.persistentPassiveFx.clear();
+}
+
 
 function healUnit(unit, amount, reason) {
   if (!unit?.alive) return;
@@ -360,35 +376,21 @@ async function playAttackAnimation(attacker, defender, action) {
 }
 
 function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
-  const attackerEl = getUnitCardElement(attacker.id);
-
   if (attacker.ability?.includes("Engine") && damage > 0) {
     attacker.stats.Spd = Math.max(1, Math.round(attacker.stats.Spd * 1.1));
     addLog(`Passive Triggered: Engine on ${attacker.name} (+10% Spd).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    applyPassiveFx(attacker, "passive-engine", "gray", true);
   }
   if (attacker.ability?.includes("Fear") && Math.random() < 0.25) {
     attacker.stats.Spd += 5;
     addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd this battle).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    applyPassiveFx(attacker, "passive-engine", "gray", true);
   }
 
   if (attacker.ability?.includes("Harden") && Math.random() < 0.25) {
     attacker.stats.Def += 5;
     addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def this battle).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    applyPassiveFx(attacker, "passive-engine", "gray", true);
   }
 
   if (attacker.ability?.includes("Absorb") && damage > 0) healUnit(attacker, Math.max(1, damage * 0.1), "Absorb");
@@ -397,19 +399,11 @@ function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
   if (defeatedTarget && attacker.ability?.includes("Bloodthirst+")) {
     attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.2));
     addLog(`Passive Triggered: Bloodthirst+ on ${attacker.name} (+20% PO).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-bloodthirst");
-      spawnParticles(attackerEl, "red");
-      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
-    }
+    applyPassiveFx(attacker, "passive-bloodthirst", "red", true);
   } else if (defeatedTarget && attacker.ability?.includes("Bloodthirst")) {
     attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.1));
     addLog(`Passive Triggered: Bloodthirst on ${attacker.name} (+10% PO).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-bloodthirst");
-      spawnParticles(attackerEl, "red");
-      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
-    }
+    applyPassiveFx(attacker, "passive-bloodthirst", "red", true);
   }
 
   if (defeatedTarget && attacker.ability?.includes("Our Tides")) {
@@ -427,7 +421,10 @@ function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
     const reflect = Math.max(1, Math.round(damage * 0.05));
     attacker.hp = Math.max(0, attacker.hp - reflect);
     addLog(`Passive Triggered: Thorns reflects ${reflect} to ${attacker.name}.`);
-    if (attacker.hp <= 0) attacker.alive = false;
+    if (attacker.hp <= 0) {
+      attacker.alive = false;
+      clearPassiveFx(attacker);
+    }
   }
 
   if (defender.ability?.includes("Resilience") && damage > 0) {
@@ -493,7 +490,10 @@ function computeFinalDamage(attacker, defender, action) {
 function dealDamage(attacker, defender, action) {
   const dmg = computeFinalDamage(attacker, defender, action);
   defender.hp = Math.max(0, defender.hp - dmg);
-  if (defender.hp <= 0) defender.alive = false;
+  if (defender.hp <= 0) {
+    defender.alive = false;
+    clearPassiveFx(defender);
+  }
   addLog(`${attacker.team.toUpperCase()} ${attacker.name} ${action.kind}(${action.attackType}) -> ${defender.name} for ${dmg}.`);
   if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
   triggerPassives(attacker, defender, dmg, !defender.alive, action);
@@ -666,7 +666,8 @@ function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = 
         ${showSkill ? `<button class="card-action ${actionMode === "SKILL" ? "active" : ""}" data-action="SKILL">Skill</button>` : ""}
       </div>`
     : "";
-  return `<div class="slot ${cls} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}">
+  const persistentFxClasses = [...(unit.persistentPassiveFx || [])].join(" ");
+  return `<div class="slot ${cls} ${persistentFxClasses} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}">
       <div class="sp-vertical"><div class="sp-fill" style="height:${spPct}%"></div></div>
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
