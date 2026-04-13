@@ -1,26 +1,72 @@
 const TYPE_CHART = {
-  Normal: { weak: ["Erroneous", "Steel"], strong: [] },
-  Plant: { weak: ["Wind", "Fire", "Bug", "Poison", "Erroneous", "Steel"], strong: ["Water", "Rock", "Ground"] },
-  Bug: { weak: ["Erroneous", "Organism", "Rock", "Steel", "Wind", "Fire"], strong: ["Plant", "Normal", "Fear"] }
+  Normal: { weak: ["Erroneous", "Steel"], strong: [], immune: [] },
+  Plant: { weak: ["Wind", "Fire", "Bug", "Poison", "Erroneous", "Steel"], strong: ["Water", "Rock", "Ground"], immune: [] },
+  Wind: { weak: ["Electric", "Steel", "Rock", "Erroneous"], strong: ["Plant", "Bug", "Fire"], immune: ["Ground"] },
+  Fire: { weak: ["Water", "Rock", "Erroneous"], strong: ["Plant", "Bug", "Ice", "Steel"], immune: [] },
+  Water: { weak: ["Plant", "Electric", "Erroneous"], strong: ["Rock", "Ground", "Fire"], immune: [] },
+  Electric: { weak: ["Ground", "Rock", "Erroneous", "Organism"], strong: ["Water", "Wind", "Bug"], immune: [] },
+  Steel: { weak: ["Fire", "Dragon", "Erroneous", "Organism"], strong: ["Poison"], immune: [] },
+  Ground: { weak: ["Water", "Plant", "Erroneous", "Organism"], strong: ["Rock", "Steel", "Fire"], immune: ["Electric"] },
+  Ice: { weak: ["Erroneous", "Organism", "Fire", "Water", "Rock"], strong: ["Dragon", "Plant", "Ground"], immune: [] },
+  Rock: { weak: ["Erroneous", "Organism", "Plant", "Steel"], strong: ["Wind", "Ice", "Fire"], immune: [] },
+  Bug: { weak: ["Erroneous", "Organism", "Rock", "Steel", "Wind", "Fire"], strong: ["Plant", "Normal", "Fear"], immune: [] },
+  Poison: { weak: ["Erroneous", "Organism", "Bug"], strong: ["Plant", "Water"], immune: [] },
+  Phantom: { weak: ["Erroneous", "Organism"], strong: ["Fear"], immune: ["Normal", "Fear"] },
+  Dragon: { weak: ["Steel", "Erroneous"], strong: ["Plant", "Wind", "Fire", "Water"], immune: [] },
+  Fear: { weak: ["Bug", "Phantom", "Dragon", "Erroneous"], strong: ["Normal", "Organism"], immune: [] },
+  Organism: { weak: ["Water", "Fire", "Plant", "Wind"], strong: ["Erroneous"], immune: [] },
+  Erroneous: { weak: ["Organism"], strong: ["Normal", "Plant", "Wind", "Fire", "Water", "Electric", "Steel", "Ground", "Ice", "Rock", "Bug", "Poison", "Phantom", "Dragon", "Fear"], immune: [] }
 };
 
 const CARDS = {
-  Man: {
-    name: "Man", types: ["Normal"], stats: { HP: 10, PO: 1, Def: 0, MO: 0, MR: 0, Spd: 10 },
-    skill: { name: "Punch", type: "Normal", power: 40, range: "basic" }
-  },
-  Brig: {
-    name: "Brig", types: ["Bug"], stats: { HP: 15, PO: 5, Def: 0, MO: 1, MR: 0, Spd: 15 },
-    skill: { name: "Miniture Bite", type: "Bug", power: 40, range: "basic" }
-  },
-  Cat: {
-    name: "Cat", types: ["Normal"], stats: { HP: 17, PO: 10, Def: 5, MO: 1, MR: 0, Spd: 20 },
-    skill: { name: "Scratch", type: "Normal", power: 40, range: "basic" }
-  },
-  Dandi: {
-    name: "Dandi", types: ["Plant"], stats: { HP: 25, PO: 20, Def: 10, MO: 5, MR: 5, Spd: 2 },
-    skill: { name: "Vine thorns", type: "Plant", power: 35, range: "pierce" }
-  }
+  Man: { name: "Man", types: ["Normal"], baseStats: { HP: 10, PO: 1, Def: 0, MO: 0, MR: 0, Spd: 10 }, ability: "None", skill: { name: "Punch", type: "Normal", power: 2, range: "basic", damageKind: "PO" } },
+  Brig: { name: "Brig", types: ["Bug"], baseStats: { HP: 15, PO: 5, Def: 0, MO: 1, MR: 0, Spd: 15 }, ability: "Fear", skill: { name: "Mini Bite", type: "Bug", power: 5, range: "basic", damageKind: "PO" } },
+  BuBa: { name: "BuBa", types: ["Bug"], baseStats: { HP: 35, PO: 7, Def: 20, MO: 2, MR: 5, Spd: 10 }, ability: "Harden", skill: { name: "Hardened Sting", type: "Bug", power: 6, range: "basic", damageKind: "PO" } },
+  Gosple: { name: "Gosple", types: ["Bug"], baseStats: { HP: 45, PO: 25, Def: 20, MO: 5, MR: 10, Spd: 27 }, ability: "Engine", skill: { name: "Gospel Charge", type: "Bug", power: 9, range: "basic", damageKind: "PO" } },
+  Cat: { name: "Cat", types: ["Normal"], baseStats: { HP: 17, PO: 10, Def: 5, MO: 1, MR: 0, Spd: 20 }, ability: "Engine", skill: { name: "Scratch", type: "Normal", power: 6, range: "basic", damageKind: "PO" } },
+  Mao: { name: "Mao", types: ["Normal"], baseStats: { HP: 45, PO: 25, Def: 10, MO: 10, MR: 5, Spd: 25 }, ability: "Engine", skill: { name: "Wild Claw", type: "Normal", power: 8, range: "basic", damageKind: "PO" } },
+  Dandi: { name: "Dandi", types: ["Plant"], baseStats: { HP: 25, PO: 20, Def: 10, MO: 5, MR: 5, Spd: 2 }, ability: "Absorb", skill: { name: "Vine Thorns", type: "Plant", power: 7, range: "pierce", damageKind: "MO" } },
+  Madalion: { name: "Madalion", types: ["Plant", "Poison"], baseStats: { HP: 75, PO: 35, Def: 20, MO: 7, MR: 10, Spd: 3 }, ability: "Drain", skill: { name: "Poison Bloom", type: "Plant", power: 8, range: "pierce", damageKind: "MO" } },
+  Kog: { name: "Kog", types: ["Water", "Ground"], baseStats: { HP: 100, PO: 5, Def: 15, MO: 10, MR: 10, Spd: 5 }, ability: "Rest", skill: { name: "Mud Splash", type: "Water", power: 7, range: "basic", damageKind: "MO" } },
+  Shizi: { name: "Shizi", types: ["Rock", "Plant"], baseStats: { HP: 35, PO: 5, Def: 15, MO: 0, MR: 5, Spd: 5 }, ability: "Thorns", skill: { name: "Stone Jab", type: "Rock", power: 5, range: "basic", damageKind: "PO" } },
+  Shiking: { name: "Shiking", types: ["Rock", "Plant"], baseStats: { HP: 65, PO: 15, Def: 35, MO: 5, MR: 15, Spd: 7 }, ability: "Thorns", skill: { name: "Crown Smash", type: "Rock", power: 9, range: "basic", damageKind: "PO" } },
+  Galladon: { name: "Galladon", types: ["Dragon"], baseStats: { HP: 25, PO: 15, Def: 5, MO: 10, MR: 5, Spd: 15 }, ability: "Bloodthirst", skill: { name: "Drake Strike", type: "Dragon", power: 8, range: "basic", damageKind: "PO" } },
+  Threlladon: { name: "Threlladon", types: ["Dragon", "Organism"], baseStats: { HP: 75, PO: 35, Def: 20, MO: 25, MR: 15, Spd: 24 }, ability: "Bloodthirst+", skill: { name: "Threl Rend", type: "Dragon", power: 10, range: "basic", damageKind: "PO" } },
+  Knight: { name: "Knight", types: ["Normal", "Steel"], baseStats: { HP: 50, PO: 20, Def: 15, MO: 1, MR: 0, Spd: 10 }, ability: "Knight's Soul", skill: { name: "Steel Slash", type: "Steel", power: 8, range: "basic", damageKind: "PO" } },
+  Witling: { name: "Witling", types: ["Wind"], baseStats: { HP: 17, PO: 7, Def: 0, MO: 2, MR: 0, Spd: 10 }, ability: "Down the Wind", skill: { name: "Wind Seed", type: "Wind", power: 6, range: "basic", damageKind: "MO" } },
+  Wit: { name: "Wit", types: ["Wind"], baseStats: { HP: 60, PO: 15, Def: 10, MO: 25, MR: 10, Spd: 20 }, ability: "Down the Wind", skill: { name: "Typhoon Mind", type: "Wind", power: 9, range: "basic", damageKind: "MO" } },
+  Spiritue: { name: "Spiritue", types: ["Phantom"], baseStats: { HP: 20, PO: 0, Def: 0, MO: 15, MR: 5, Spd: 15 }, ability: "Indistinct", skill: { name: "Ghost Touch", type: "Phantom", power: 8, range: "basic", damageKind: "MO" } },
+  Spiripile: { name: "Spiripile", types: ["Phantom"], baseStats: { HP: 65, PO: 0, Def: 0, MO: 37, MR: 15, Spd: 23 }, ability: "Indistinct", skill: { name: "Pile Wail", type: "Phantom", power: 11, range: "basic", damageKind: "MO" } },
+  Fisherman: { name: "Fisherman", types: ["Normal", "Organism"], baseStats: { HP: 125, PO: 50, Def: 35, MO: 10, MR: 35, Spd: 20 }, ability: "Resilience", skill: { name: "Net Slam", type: "Normal", power: 10, range: "basic", damageKind: "PO" } },
+  Progenlion: { name: "Progenlion", types: ["Plant", "Organism"], baseStats: { HP: 175, PO: 65, Def: 45, MO: 40, MR: 35, Spd: 20 }, ability: "Spread and Consume", skill: { name: "Path of Thorns", type: "Plant", power: 12, range: "free-basic", damageKind: "MO" } },
+  Sharkuna: { name: "Sharkuna", types: ["Water"], baseStats: { HP: 45, PO: 20, Def: 10, MO: 15, MR: 10, Spd: 35 }, ability: "Bloodthirst", skill: { name: "Tide Bite", type: "Water", power: 9, range: "basic", damageKind: "PO" } },
+  Snight: { name: "Snight", types: ["Water"], baseStats: { HP: 50, PO: 35, Def: 15, MO: 25, MR: 10, Spd: 40 }, ability: "Bloodthirst+", skill: { name: "Midnight Wave", type: "Water", power: 10, range: "basic", damageKind: "PO" } },
+  Layseak: { name: "Layseak", types: ["Water", "Rock"], baseStats: { HP: 55, PO: 35, Def: 15, MO: 0, MR: 5, Spd: 5 }, ability: "Trap Jaws", skill: { name: "Crush Jaws", type: "Rock", power: 9, range: "basic", damageKind: "PO" } },
+  Khip: { name: "Khip", types: ["Water", "Plant"], baseStats: { HP: 55, PO: 35, Def: 15, MO: 0, MR: 5, Spd: 5 }, ability: "Bloodthirst+ / Engine", skill: { name: "Slice Through", type: "Water", power: 20, range: "all", damageKind: "TD" } },
+  Sheldor: { name: "Sheldor", types: ["Rock", "Ground"], baseStats: { HP: 35, PO: 15, Def: 25, MO: 5, MR: 15, Spd: 10 }, ability: "Adaption Recover", skill: { name: "Shell Bash", type: "Rock", power: 8, range: "basic", damageKind: "PO" } },
+  Sheldon: { name: "Sheldon", types: ["Rock", "Ground", "Dragon"], baseStats: { HP: 85, PO: 30, Def: 45, MO: 5, MR: 20, Spd: 15 }, ability: "Adaption Recover", skill: { name: "Boulder of Care", type: "Rock", power: 0, range: "self", damageKind: "MO" } },
+  Wishie: { name: "Wishie", types: ["Water"], baseStats: { HP: 25, PO: 15, Def: 5, MO: 1, MR: 2, Spd: 40 }, ability: "First Strike", skill: { name: "Flash Fin", type: "Water", power: 7, range: "basic", damageKind: "PO" } },
+  Washie: { name: "Washie", types: ["Water"], baseStats: { HP: 55, PO: 27, Def: 15, MO: 10, MR: 12, Spd: 45 }, ability: "First Strike", skill: { name: "Rapid Tide", type: "Water", power: 9, range: "basic", damageKind: "PO" } },
+  Waigenitor: { name: "Waigenitor", types: ["Water"], baseStats: { HP: 125, PO: 35, Def: 30, MO: 25, MR: 25, Spd: 47 }, ability: "First Strike / Engine / Our Tides", skill: { name: "Ocean Crown", type: "Water", power: 11, range: "all", damageKind: "PO" } },
+  "The Thing": { name: "The Thing", types: ["Fear", "Organism"], baseStats: { HP: 1250, PO: 75, Def: 50, MO: 0, MR: 45, Spd: 15 }, ability: "Shell of certain Creation", skill: { name: "Serve....", type: "Fear", power: 50, range: "free-basic", damageKind: "TD" } },
+  "A Certain Creation - The Eye": { name: "A Certain Creation - The Eye", types: ["Fear", "Erroneous"], baseStats: { HP: 500, PO: 30, Def: 15, MO: 75, MR: 35, Spd: 30 }, ability: "Creation of something Beyond", skill: { name: "Nature of violence", type: "Fear", power: 10, range: "all", damageKind: "TD" } }
+};
+
+const EVOLUTION_RULES = {
+  Man: [{ at: 15, to: "Knight" }],
+  Brig: [{ at: 7, to: "BuBa" }],
+  BuBa: [{ at: 17, to: "Gosple" }],
+  Cat: [{ at: 12, to: "Mao" }],
+  Dandi: [{ at: 25, to: "Madalion" }],
+  Madalion: [{ at: 55, to: "Progenlion", requires: "Crown of the Progenitor" }],
+  Shizi: [{ at: 15, to: "Shiking" }],
+  Galladon: [{ at: 27, to: "Threlladon" }],
+  Witling: [{ at: 23, to: "Wit" }],
+  Spiritue: [{ at: 27, to: "Spiripile" }],
+  Sharkuna: [{ at: 28, to: "Snight" }],
+  Sheldor: [{ at: 30, to: "Sheldon" }],
+  Wishie: [{ at: 27, to: "Washie" }],
+  Washie: [{ at: 55, to: "Waigenitor", requires: "Crown of the Progenitor" }]
 };
 
 const STARTING_FORMATION = {
@@ -28,8 +74,8 @@ const STARTING_FORMATION = {
   enemy: ["Man", null, "Man", "Cat", "Brig", "Cat"]
 };
 
+const MAX_LEVEL = 50;
 const BATTLE_LEVEL = 10;
-
 let state = {};
 
 const playerGrid = document.getElementById("playerGrid");
@@ -38,20 +84,55 @@ const logEl = document.getElementById("log");
 const phaseText = document.getElementById("phaseText");
 const roundText = document.getElementById("roundText");
 
+function scaleStat(baseValue, level, kind) {
+  if (baseValue === 0) return 0;
+  const n = level - 1;
+  if (kind === "HP") return Math.round(baseValue * (1 + 0.09 * n)) + 2 * Math.floor(n / 5);
+  if (kind === "PO" || kind === "MO") return Math.round(baseValue * (1 + 0.055 * n)) + Math.floor(n / 8);
+  if (kind === "Def" || kind === "MR") return Math.round(baseValue * (1 + 0.045 * n));
+  if (kind === "Spd") return Math.round(baseValue * (1 + 0.02 * n));
+  return baseValue;
+}
+
+function computeStats(baseStats, level) {
+  return {
+    HP: scaleStat(baseStats.HP, level, "HP"),
+    PO: scaleStat(baseStats.PO, level, "PO"),
+    Def: scaleStat(baseStats.Def, level, "Def"),
+    MO: scaleStat(baseStats.MO, level, "MO"),
+    MR: scaleStat(baseStats.MR, level, "MR"),
+    Spd: scaleStat(baseStats.Spd, level, "Spd")
+  };
+}
+
+function resolveEvolution(cardName, level) {
+  let current = cardName;
+  while (EVOLUTION_RULES[current]) {
+    const next = EVOLUTION_RULES[current].find(rule => level >= rule.at);
+    if (!next || !CARDS[next.to]) break;
+    current = next.to;
+  }
+  return current;
+}
+
 function cloneUnit(cardName, team, slot) {
   if (!cardName) return null;
-  const base = CARDS[cardName];
+  const level = Math.min(MAX_LEVEL, Math.max(1, BATTLE_LEVEL));
+  const resolvedName = resolveEvolution(cardName, level);
+  const base = CARDS[resolvedName];
+  const stats = computeStats(base.baseStats, level);
   return {
-    id: `${team}-${slot}-${cardName}-${Math.random().toString(36).slice(2, 7)}`,
+    id: `${team}-${slot}-${resolvedName}-${Math.random().toString(36).slice(2, 7)}`,
     name: base.name,
     types: [...base.types],
-    stats: { ...base.stats },
+    baseStats: { ...base.baseStats },
+    stats,
     skill: { ...base.skill },
-    hp: base.stats.HP,
+    hp: stats.HP,
     alive: true,
     team,
     slot,
-    level: BATTLE_LEVEL
+    level
   };
 }
 
@@ -66,7 +147,7 @@ function initBattle() {
     ended: false
   };
   logEl.innerHTML = "";
-  addLog("Battle started. Select your attacker and target.");
+  addLog("Battle started. Stats are recalculated from Lv1 templates with full roster data loaded.");
   render();
 }
 
@@ -81,10 +162,7 @@ function frontLineIndex(team, col) {
 }
 
 function nearestColumnsWithFront(team, fromCol) {
-  const available = [0, 1, 2]
-    .map(col => ({ col, idx: frontLineIndex(team, col) }))
-    .filter(item => item.idx >= 0);
-
+  const available = [0, 1, 2].map(col => ({ col, idx: frontLineIndex(team, col) })).filter(item => item.idx >= 0);
   if (available.length === 0) return [];
   const minDist = Math.min(...available.map(item => Math.abs(item.col - fromCol)));
   return available.filter(item => Math.abs(item.col - fromCol) === minDist);
@@ -97,21 +175,19 @@ function computeTargets(attacker) {
   const allFront = [0, 1, 2].map(c => frontLineIndex(enemyTeam, c)).filter(i => i >= 0);
   const targets = new Set();
 
-  if (attacker.skill.range === "basic") {
-    if (frontIdx >= 0) {
-      targets.add(frontIdx);
-    } else {
-      nearestColumnsWithFront(enemyTeam, col).forEach(item => targets.add(item.idx));
-    }
+  if (attacker.skill.range === "self") {
+    targets.add(attacker.slot);
+  } else if (attacker.skill.range === "basic") {
+    if (frontIdx >= 0) targets.add(frontIdx);
+    else nearestColumnsWithFront(enemyTeam, col).forEach(item => targets.add(item.idx));
   } else if (attacker.skill.range === "pierce") {
     if (state[enemyTeam][col]?.alive || state[enemyTeam][col + 3]?.alive) {
       if (state[enemyTeam][col]?.alive) targets.add(col);
       if (state[enemyTeam][col + 3]?.alive) targets.add(col + 3);
     } else {
       nearestColumnsWithFront(enemyTeam, col).forEach(item => {
-        const c = item.col;
-        if (state[enemyTeam][c]?.alive) targets.add(c);
-        if (state[enemyTeam][c + 3]?.alive) targets.add(c + 3);
+        if (state[enemyTeam][item.col]?.alive) targets.add(item.col);
+        if (state[enemyTeam][item.col + 3]?.alive) targets.add(item.col + 3);
       });
     }
   } else if (attacker.skill.range === "all") {
@@ -119,6 +195,7 @@ function computeTargets(attacker) {
   } else if (attacker.skill.range === "free-basic") {
     allFront.forEach(i => targets.add(i));
   }
+
   return [...targets];
 }
 
@@ -127,25 +204,32 @@ function typeMultiplier(attackType, defenderTypes) {
   const rule = TYPE_CHART[attackType];
   if (!rule) return mult;
   defenderTypes.forEach(t => {
-    if (rule.strong.includes(t)) mult *= 1.5;
-    if (rule.weak.includes(t)) mult *= 0.5;
+    if (rule.immune.includes(t)) mult = 0;
+    else {
+      if (rule.strong.includes(t)) mult *= 1.5;
+      if (rule.weak.includes(t)) mult *= 0.5;
+    }
   });
   return mult;
 }
 
-function previewDamage(attacker, defender, includeRandom = false) {
-  const levelFactor = Math.floor((2 * attacker.level) / 5 + 2);
-  const attack = Math.max(1, attacker.stats.PO);
-  const defense = Math.max(1, defender.stats.Def);
-  const base = Math.floor((levelFactor * attacker.skill.power * attack) / defense / 50) + 2;
-  const stab = attacker.types.includes(attacker.skill.type) ? 1.5 : 1;
-  const type = typeMultiplier(attacker.skill.type, defender.types);
-  const randomMod = includeRandom ? (0.85 + Math.random() * 0.15) : 1;
-  return Math.max(1, Math.floor(base * stab * type * randomMod));
+function computeFinalDamage(attacker, defender) {
+  const kind = attacker.skill.damageKind;
+  if (kind === "TD") return Math.max(1, Math.round(attacker.skill.power));
+
+  const isMagical = kind === "MO";
+  const offense = isMagical ? attacker.stats.MO : attacker.stats.PO;
+  const raw = attacker.skill.power + offense;
+  const typed = raw * typeMultiplier(attacker.skill.type, defender.types);
+  if (typed <= 0) return 0;
+
+  const defenseStat = isMagical ? defender.stats.MR : defender.stats.Def;
+  const reduced = typed * 30 / (30 + Math.max(0, defenseStat));
+  return Math.max(1, Math.round(reduced));
 }
 
 function dealDamage(attacker, defender) {
-  const dmg = previewDamage(attacker, defender, true);
+  const dmg = computeFinalDamage(attacker, defender);
   defender.hp = Math.max(0, defender.hp - dmg);
   if (defender.hp <= 0) defender.alive = false;
   addLog(`${attacker.team.toUpperCase()} ${attacker.name} uses ${attacker.skill.name} on ${defender.name} for ${dmg} damage.`);
@@ -155,21 +239,17 @@ function dealDamage(attacker, defender) {
 function chooseBestEnemyAction() {
   const enemyCandidates = state.enemy.filter(u => u?.alive && computeTargets(u).length > 0);
   let best = null;
-
   enemyCandidates.forEach(attacker => {
     computeTargets(attacker).forEach(targetIdx => {
       const defender = state.player[targetIdx];
       if (!defender?.alive) return;
-      const damage = previewDamage(attacker, defender, false);
+      const damage = computeFinalDamage(attacker, defender);
       const lethal = damage >= defender.hp ? 1 : 0;
       const threat = defender.stats.PO * 2 + defender.stats.Spd;
       const score = lethal * 10000 + damage * 100 + threat;
-      if (!best || score > best.score) {
-        best = { team: "enemy", attackerId: attacker.id, targetIdx, score, damage };
-      }
+      if (!best || score > best.score) best = { team: "enemy", attackerId: attacker.id, targetIdx, score };
     });
   });
-
   return best;
 }
 
@@ -181,18 +261,14 @@ function resolveRound() {
   state.phase = "resolving";
   render();
 
-  const actions = [state.pending.player, state.pending.enemy]
-    .filter(Boolean)
-    .map(action => {
-      const attacker = getUnitById(action.team, action.attackerId);
-      const defenderTeam = action.team === "player" ? "enemy" : "player";
-      const defender = state[defenderTeam][action.targetIdx];
-      return { ...action, attacker, defender, speed: attacker?.stats.Spd ?? 0 };
-    })
-    .filter(a => a.attacker?.alive && a.defender?.alive);
+  const actions = [state.pending.player, state.pending.enemy].filter(Boolean).map(action => {
+    const attacker = getUnitById(action.team, action.attackerId);
+    const defenderTeam = action.team === "player" ? "enemy" : "player";
+    const defender = state[defenderTeam][action.targetIdx];
+    return { ...action, attacker, defender, speed: attacker?.stats.Spd ?? 0 };
+  }).filter(a => a.attacker?.alive && a.defender?.alive);
 
   actions.sort((a, b) => b.speed - a.speed || (Math.random() < 0.5 ? -1 : 1));
-
   actions.forEach(action => {
     if (!action.attacker.alive || !action.defender.alive) return;
     dealDamage(action.attacker, action.defender);
@@ -227,7 +303,6 @@ function onEnemySlotClick(idx) {
 
   const target = state.enemy[idx];
   addLog(`Player commits ${attacker.name} -> ${target?.name ?? "Empty"}. Enemy also commits action.`);
-
   setTimeout(resolveRound, 350);
 }
 
@@ -247,11 +322,11 @@ function cardHtml(unit, cls, teamName, rowTag) {
   const face = teamName === "player" ? "↑ Facing Enemy" : "↓ Facing Player";
   return `<div class="slot ${cls} ${unit.alive ? "" : "dead"}">
       <div class="rowtag">${rowTag}</div>
-      <div class="name">${unit.name}</div>
+      <div class="name">${unit.name} (Lv.${unit.level})</div>
       <div class="face">${face}</div>
       <small>${unit.types.join("/")} | ${unit.skill.name}</small>
       <div class="hpbar"><div class="hpfill" style="width:${hpPct}%"></div></div>
-      <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | DEF ${unit.stats.Def} | SPD ${unit.stats.Spd}</small>
+      <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
     </div>`;
 }
 
@@ -266,13 +341,12 @@ function renderGrid(teamName, rootEl, onClick) {
     wrapper.innerHTML = cardHtml(u, baseCls, teamName, rowTag);
     const slotDiv = wrapper.firstElementChild;
 
-    if (teamName === "player" && state.phase === "player-select" && u?.alive) {
-      slotDiv.classList.add("selectable");
-    }
+    if (teamName === "player" && state.phase === "player-select" && u?.alive) slotDiv.classList.add("selectable");
     if (teamName === "enemy" && state.phase === "player-select" && state.selectedUnitId) {
       const attacker = getUnitById("player", state.selectedUnitId);
       if (attacker && computeTargets(attacker).includes(idx)) slotDiv.classList.add("targetable");
     }
+
     slotDiv.addEventListener("click", () => onClick(idx));
     rootEl.appendChild(slotDiv);
   });
