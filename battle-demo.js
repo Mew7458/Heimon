@@ -743,6 +743,10 @@ function addLog(text) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+document.getElementById("poBtn").addEventListener("click", () => { state.selectedAction = "PO"; render(); });
+document.getElementById("moBtn").addEventListener("click", () => { state.selectedAction = "MO"; render(); });
+document.getElementById("skillBtn").addEventListener("click", () => { state.selectedAction = "SKILL"; render(); });
+
 document.getElementById("endTurnBtn").addEventListener("click", () => {
   if (state.phase !== "player-select" || state.ended || state.manualBothSides) return;
   state.pending.player = null;
