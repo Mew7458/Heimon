@@ -167,6 +167,7 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
     hp: stats.HP,
     alive: true,
     persistentPassiveFx: new Set(),
+    passiveAuraColors: new Set(),
     team,
     slot,
     level: unitLevel
@@ -305,7 +306,13 @@ function spawnParticles(targetEl, colorClass) {
 function applyPassiveFx(unit, cssClass, colorClass, persistent = false) {
   if (!unit) return;
   const el = getUnitCardElement(unit.id);
-  if (persistent) unit.persistentPassiveFx?.add(cssClass);
+  if (persistent) {
+    unit.persistentPassiveFx?.add(cssClass);
+    if (colorClass === "red") unit.passiveAuraColors?.add("#ff5a5a");
+    if (colorClass === "gray") unit.passiveAuraColors?.add("#d9d9d9");
+    if (colorClass === "green") unit.passiveAuraColors?.add("#69f28f");
+    syncUnitPassiveAura(unit, el);
+  }
   if (!el) return;
   el.classList.add(cssClass);
   spawnParticles(el, colorClass);
@@ -315,6 +322,44 @@ function applyPassiveFx(unit, cssClass, colorClass, persistent = false) {
 function clearPassiveFx(unit) {
   if (!unit?.persistentPassiveFx) return;
   unit.persistentPassiveFx.clear();
+  unit.passiveAuraColors?.clear();
+  syncUnitPassiveAura(unit);
+}
+
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const value = Number.parseInt(clean, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255
+  };
+}
+
+function resolvePassiveAura(unit) {
+  const colors = [...(unit?.passiveAuraColors || [])];
+  if (!colors.length) return { rgb: "255,255,255", alpha: "0" };
+  const mixed = colors.reduce((acc, color) => {
+    const rgb = hexToRgb(color);
+    return { r: acc.r + rgb.r, g: acc.g + rgb.g, b: acc.b + rgb.b };
+  }, { r: 0, g: 0, b: 0 });
+  const count = colors.length;
+  const avg = {
+    r: Math.round(mixed.r / count),
+    g: Math.round(mixed.g / count),
+    b: Math.round(mixed.b / count)
+  };
+  const alpha = Math.min(0.42, 0.26 + (count - 1) * 0.06);
+  return { rgb: `${avg.r},${avg.g},${avg.b}`, alpha: `${alpha}` };
+}
+
+function syncUnitPassiveAura(unit, targetEl = null) {
+  if (!unit) return;
+  const el = targetEl || getUnitCardElement(unit.id);
+  if (!el) return;
+  const aura = resolvePassiveAura(unit);
+  el.style.setProperty("--passive-aura-rgb", aura.rgb);
+  el.style.setProperty("--passive-aura-alpha", aura.alpha);
 }
 
 
@@ -667,7 +712,8 @@ function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = 
       </div>`
     : "";
   const persistentFxClasses = [...(unit.persistentPassiveFx || [])].join(" ");
-  return `<div class="slot ${cls} ${persistentFxClasses} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}">
+  const aura = resolvePassiveAura(unit);
+  return `<div class="slot ${cls} ${persistentFxClasses} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}" style="--passive-aura-rgb:${aura.rgb};--passive-aura-alpha:${aura.alpha};">
       <div class="sp-vertical"><div class="sp-fill" style="height:${spPct}%"></div></div>
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
