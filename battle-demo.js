@@ -170,6 +170,7 @@ function initBattle(mode = "demo") {
     player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, null)),
     enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, null)),
     pending: { player: null, enemy: null },
+    plannedActions: { player: [], enemy: [] },
     actedThisRound: { player: new Set(), enemy: new Set() },
     ended: false
   };
@@ -633,7 +634,7 @@ async function resolveRound() {
   state.phase = "resolving";
   render();
 
-  const actions = [state.pending.player, state.pending.enemy].filter(Boolean).map(action => {
+  const actions = [...state.plannedActions.player, ...state.plannedActions.enemy].filter(Boolean).map(action => {
     const attacker = getUnitById(action.team, action.attackerId);
     if (!attacker?.alive) return null;
     const model = actionToDamageModel(attacker, action.actionMode);
@@ -659,23 +660,40 @@ async function resolveRound() {
 
   checkBattleEnd();
   if (!state.ended) {
-    if (state.step >= 3) {
-      expireRoundBuffs();
-      grantRoundResources();
-      state.round += 1;
-      state.step = 1;
-      state.actedThisRound.player.clear();
-      state.actedThisRound.enemy.clear();
-    } else {
-      state.step += 1;
-    }
+    expireRoundBuffs();
+    grantRoundResources();
+    state.round += 1;
+    state.step = 1;
+    state.actedThisRound.player.clear();
+    state.actedThisRound.enemy.clear();
   }
   state.pending.player = null;
   state.pending.enemy = null;
+  state.plannedActions.player = [];
+  state.plannedActions.enemy = [];
   state.selected = null;
   state.selectedAction = "PO";
   state.activeTeam = "player";
   state.phase = state.ended ? "ended" : "player-select";
+  render();
+}
+
+function lockCurrentStepAndContinue() {
+  if (state.pending.player) state.plannedActions.player.push(state.pending.player);
+  if (state.pending.enemy) state.plannedActions.enemy.push(state.pending.enemy);
+  state.pending.player = null;
+  state.pending.enemy = null;
+  state.selected = null;
+  state.selectedAction = "PO";
+
+  if (state.step >= 3) {
+    addLog("三步行动已锁定，开始按速度统一结算。");
+    setTimeout(resolveRound, 250);
+    return;
+  }
+
+  state.step += 1;
+  addLog(`Step ${state.step}/3 开始选择行动。`);
   render();
 }
 
@@ -685,7 +703,7 @@ function commitTeamAction(team, attacker, targetIdx, actionMode) {
 
   if (!state.manualBothSides) {
     state.pending.enemy = chooseBestEnemyAction();
-    setTimeout(resolveRound, 250);
+    lockCurrentStepAndContinue();
     return;
   }
 
@@ -695,7 +713,7 @@ function commitTeamAction(team, attacker, targetIdx, actionMode) {
 
   if (state.pending.player && state.pending.enemy) {
     addLog("双方行动已选定，按速度结算。");
-    setTimeout(resolveRound, 250);
+    lockCurrentStepAndContinue();
   } else {
     addLog(`${team === "player" ? "Player 1" : "Player 2"} 已锁定行动，等待对方。`);
     render();
@@ -862,8 +880,8 @@ document.getElementById("endTurnBtn").addEventListener("click", () => {
   if (state.phase !== "player-select" || state.ended || state.manualBothSides) return;
   state.pending.player = null;
   state.pending.enemy = chooseBestEnemyAction();
-  addLog("Player chooses to wait this round. Enemy action only.");
-  setTimeout(resolveRound, 250);
+  addLog(`Player skips Step ${state.step}/3. Enemy action locked.`);
+  lockCurrentStepAndContinue();
 });
 
 document.getElementById("restartBtn").addEventListener("click", () => initBattle(state.mode || "demo"));
