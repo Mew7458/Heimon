@@ -115,6 +115,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 8px;
   line-height: 1.4;
 }
+.legend {
+  background: #0f1a30;
+  border: 1px solid #2c3f65;
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.5;
+  display: grid;
+  gap: 2px;
+  color: #d8e0f0;
+}
 .side-panel {
   position: fixed;
   right: -280px;

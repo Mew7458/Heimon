@@ -74,37 +74,12 @@ const STARTING_FORMATION = {
   enemy: ["Man", null, "Man", "Cat", "Brig", "Cat"]
 };
 
-const SIM1_FORMATION = {
-  player: ["Sheldon", "Kog", "Khip", "Spiripile", "Snight", "Threlladon"],
-  enemy: ["Snight", "Madalion", "Sheldon", "Threlladon", "Khip", "Washie"]
-};
-
-const SIM1_ATTACK_TYPES = {
-  player: [
-    { PO: "Ground", MO: "Dragon" },
-    { PO: "Ground", MO: "Water" },
-    { PO: "Plant", MO: "Water" },
-    { PO: "Phantom", MO: "Phantom" },
-    { PO: "Water", MO: "Water" },
-    { PO: "Dragon", MO: "Dragon" }
-  ],
-  enemy: [
-    { PO: "Water", MO: "Water" },
-    { PO: "Poison", MO: "Plant" },
-    { PO: "Dragon", MO: "Ground" },
-    { PO: "Dragon", MO: "Dragon" },
-    { PO: "Plant", MO: "Water" },
-    { PO: "Water", MO: "Water" },
-  ]
-};
-
 const SPECIAL_SKILLS = new Set(["Khip", "Sheldon", "Progenlion", "The Thing", "A Certain Creation - The Eye"]);
 const BASIC_PO_POWER = 0;
 const BASIC_MO_POWER = 0;
 
 const MAX_LEVEL = 50;
 const DEFAULT_BATTLE_LEVEL = 10;
-const SIM_BATTLE_LEVEL = 30;
 let state = {};
 
 const playerGrid = document.getElementById("playerGrid");
@@ -167,6 +142,7 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
     },
     hp: stats.HP,
     alive: true,
+    tempBuffs: [],
     persistentPassiveFx: new Set(),
     passiveAuraColors: new Set(),
     team,
@@ -176,31 +152,30 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
 }
 
 function initBattle(mode = "demo") {
-  const isSimulation = mode === "sim1";
-  const formation = isSimulation ? SIM1_FORMATION : STARTING_FORMATION;
-  const level = isSimulation ? SIM_BATTLE_LEVEL : DEFAULT_BATTLE_LEVEL;
-
+  const formation = STARTING_FORMATION;
+  const level = DEFAULT_BATTLE_LEVEL;
   state = {
     mode,
     round: 1,
+    step: 1,
     phase: "player-select",
     selected: null,
     selectedAction: "PO",
     activeTeam: "player",
-    manualBothSides: isSimulation,
+    manualBothSides: false,
     resources: {
       player: { sp: 0, skillPoints: 0 },
       enemy: { sp: 0, skillPoints: 0 }
     },
-    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, isSimulation ? SIM1_ATTACK_TYPES.player[i] : null)),
-    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, isSimulation ? SIM1_ATTACK_TYPES.enemy[i] : null)),
+    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, null)),
+    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, null)),
     pending: { player: null, enemy: null },
+    actedThisRound: { player: new Set(), enemy: new Set() },
     ended: false
   };
 
   logEl.innerHTML = "";
-  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv30，双方全手动并按顺序选择PO/MO/Skill。");
-  else addLog("Battle started. Default demo mode (player vs AI).");
+  addLog("Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
   render();
   ensurePassiveParticleLoop();
@@ -313,6 +288,7 @@ function applyPassiveFx(unit, cssClass, colorClass, persistent = false) {
   const el = getUnitCardElement(unit.id);
   if (persistent) {
     unit.persistentPassiveFx?.add(cssClass);
+    if (colorClass?.startsWith?.("#")) unit.passiveAuraColors?.add(colorClass);
     if (colorClass === "red") unit.passiveAuraColors?.add("#ff5a5a");
     if (colorClass === "gray") unit.passiveAuraColors?.add("#d9d9d9");
     if (colorClass === "green") unit.passiveAuraColors?.add("#69f28f");
@@ -324,11 +300,57 @@ function applyPassiveFx(unit, cssClass, colorClass, persistent = false) {
   if (!persistent) setTimeout(() => el.classList.remove(cssClass), 650);
 }
 
+function removePassiveFx(unit, cssClass, colorClass) {
+  if (!unit) return;
+  if (cssClass) unit.persistentPassiveFx?.delete(cssClass);
+  if (colorClass?.startsWith?.("#")) unit.passiveAuraColors?.delete(colorClass);
+  if (colorClass === "red") unit.passiveAuraColors?.delete("#ff5a5a");
+  if (colorClass === "gray") unit.passiveAuraColors?.delete("#d9d9d9");
+  if (colorClass === "green") unit.passiveAuraColors?.delete("#69f28f");
+  syncUnitPassiveAura(unit);
+}
+
 function clearPassiveFx(unit) {
   if (!unit?.persistentPassiveFx) return;
   unit.persistentPassiveFx.clear();
   unit.passiveAuraColors?.clear();
   syncUnitPassiveAura(unit);
+}
+
+function addTemporaryBuff(unit, stat, amount, source, fxClass = null, fxColor = null) {
+  if (!unit?.alive || !amount) return;
+  unit.stats[stat] = Math.max(0, unit.stats[stat] + amount);
+  unit.tempBuffs.push({ stat, amount, source, expiresRound: state.round, fxClass, fxColor });
+  if (fxClass || fxColor) applyPassiveFx(unit, fxClass, fxColor, true);
+}
+
+function expireRoundBuffs() {
+  getAllUnits().forEach(unit => {
+    if (!unit?.tempBuffs?.length) return;
+    const remaining = [];
+    unit.tempBuffs.forEach(buff => {
+      if (buff.expiresRound <= state.round) {
+        unit.stats[buff.stat] = Math.max(0, unit.stats[buff.stat] - buff.amount);
+        if (buff.fxClass || buff.fxColor) removePassiveFx(unit, buff.fxClass, buff.fxColor);
+        addLog(`Buff Ended: ${buff.source} on ${unit.name}.`);
+      } else {
+        remaining.push(buff);
+      }
+    });
+    unit.tempBuffs = remaining;
+  });
+}
+
+function canActThisRound(team, unit) {
+  const aliveCount = state[team].filter(u => u?.alive).length;
+  if (aliveCount <= 1) return true;
+  return !state.actedThisRound[team].has(unit.id);
+}
+
+function registerRoundAction(team, unit) {
+  const aliveCount = state[team].filter(u => u?.alive).length;
+  if (aliveCount <= 1) return;
+  state.actedThisRound[team].add(unit.id);
 }
 
 function hexToRgb(hex) {
@@ -455,15 +477,13 @@ function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
     applyPassiveFx(attacker, "passive-engine", "gray", true);
   }
   if (attacker.ability?.includes("Fear") && Math.random() < 0.25) {
-    attacker.stats.Spd += 5;
-    addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd this battle).`);
-    applyPassiveFx(attacker, "passive-engine", "gray", true);
+    addTemporaryBuff(attacker, "Spd", 5, "Fear", "passive-fear", "#b388ff");
+    addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd until round end).`);
   }
 
   if (attacker.ability?.includes("Harden") && Math.random() < 0.25) {
-    attacker.stats.Def += 5;
-    addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def this battle).`);
-    applyPassiveFx(attacker, "passive-engine", "gray", true);
+    addTemporaryBuff(attacker, "Def", 5, "Harden", "passive-harden", "#7dd3fc");
+    addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def until round end).`);
   }
 
   if (attacker.ability?.includes("Absorb") && damage > 0) healUnit(attacker, Math.max(1, damage * 0.1), "Absorb");
@@ -574,7 +594,7 @@ function dealDamage(attacker, defender, action) {
 
 
 function chooseBestEnemyAction() {
-  const enemyCandidates = state.enemy.filter(u => u?.alive);
+  const enemyCandidates = state.enemy.filter(u => u?.alive && canActThisRound("enemy", u));
   let best = null;
   enemyCandidates.forEach(attacker => {
     const action = actionToDamageModel(attacker, "PO");
@@ -639,8 +659,16 @@ async function resolveRound() {
 
   checkBattleEnd();
   if (!state.ended) {
-    grantRoundResources();
-    state.round += 1;
+    if (state.step >= 3) {
+      expireRoundBuffs();
+      grantRoundResources();
+      state.round += 1;
+      state.step = 1;
+      state.actedThisRound.player.clear();
+      state.actedThisRound.enemy.clear();
+    } else {
+      state.step += 1;
+    }
   }
   state.pending.player = null;
   state.pending.enemy = null;
@@ -681,6 +709,10 @@ function onSlotClick(team, idx) {
   const selectingTeam = state.manualBothSides ? state.activeTeam : "player";
   if (!state.selected) {
     if (team !== selectingTeam || !unit?.alive) return;
+    if (!canActThisRound(selectingTeam, unit)) {
+      addLog(`${unit.name} already acted this round (max 1 action per round).`);
+      return;
+    }
     state.selected = { team, id: unit.id };
     render();
     return;
@@ -695,6 +727,10 @@ function onSlotClick(team, idx) {
 
   if (team === selectingTeam) {
     if (!unit?.alive) return;
+    if (!canActThisRound(selectingTeam, unit)) {
+      addLog(`${unit.name} already acted this round (max 1 action per round).`);
+      return;
+    }
     state.selected = { team, id: unit.id };
     render();
     return;
@@ -712,6 +748,7 @@ function onSlotClick(team, idx) {
   if (!valid.includes(idx)) return;
 
   addLog(`${selectingTeam === "player" ? "Player 1" : "Player 2"} selects ${attacker.name} ${actionMode} -> ${unit.name}`);
+  registerRoundAction(selectingTeam, attacker);
   commitTeamAction(selectingTeam, attacker, idx, actionMode);
 }
 
@@ -803,12 +840,10 @@ function render() {
   renderGrid("player", playerGrid);
   ensurePassiveParticleLoop();
 
-  const modeText = state.manualBothSides
-    ? `模拟战斗1：${state.activeTeam === "player" ? "Player 1" : "Player 2"} 选择 ${state.selectedAction}`
-    : (state.phase === "resolving" ? "Resolving by Speed" : "Choose Action");
+  const modeText = state.phase === "resolving" ? "Resolving by Speed" : "Choose Action";
 
   phaseText.textContent = state.phase === "ended" ? "Battle Ended" : modeText;
-  roundText.textContent = `Round ${state.round} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
+  roundText.textContent = `Round ${state.round} Step ${state.step}/3 | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
 
   document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended || state.manualBothSides;
 }
@@ -832,7 +867,6 @@ document.getElementById("endTurnBtn").addEventListener("click", () => {
 });
 
 document.getElementById("restartBtn").addEventListener("click", () => initBattle(state.mode || "demo"));
-document.getElementById("sim1Btn").addEventListener("click", () => initBattle("sim1"));
 document.getElementById("resetBtn").addEventListener("click", () => initBattle("demo"));
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.getElementById("sidePanel").classList.toggle("open");
