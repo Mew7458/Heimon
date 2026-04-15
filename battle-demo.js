@@ -112,6 +112,7 @@ const enemyGrid = document.getElementById("enemyGrid");
 const logEl = document.getElementById("log");
 const phaseText = document.getElementById("phaseText");
 const roundText = document.getElementById("roundText");
+let passiveParticleLoop = null;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -202,6 +203,7 @@ function initBattle(mode = "demo") {
   else addLog("Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
   render();
+  ensurePassiveParticleLoop();
 }
 
 function getUnit(team, idx) { return state[team][idx]; }
@@ -292,11 +294,14 @@ function getUnitCardElement(unitId) {
   return document.querySelector(`[data-unit-id="${unitId}"]`);
 }
 
-function spawnParticles(targetEl, colorClass) {
+function spawnParticles(targetEl, colorClassOrHex, count = 4) {
   if (!targetEl) return;
-  for (let i = 0; i < 4; i += 1) {
+  const isHexColor = typeof colorClassOrHex === "string" && colorClassOrHex.startsWith("#");
+  for (let i = 0; i < count; i += 1) {
     const particle = document.createElement("span");
-    particle.className = `passive-particle ${colorClass}`;
+    particle.className = "passive-particle";
+    if (isHexColor) particle.style.background = colorClassOrHex;
+    else particle.classList.add(colorClassOrHex);
     particle.style.left = `${20 + Math.random() * 60}%`;
     targetEl.appendChild(particle);
     setTimeout(() => particle.remove(), 700);
@@ -338,7 +343,7 @@ function hexToRgb(hex) {
 
 function resolvePassiveAura(unit) {
   const colors = [...(unit?.passiveAuraColors || [])];
-  if (!colors.length) return { rgb: "255,255,255", alpha: "0" };
+  if (!colors.length) return { rgb: "255,255,255", alpha: "0", hex: "#ffffff" };
   const mixed = colors.reduce((acc, color) => {
     const rgb = hexToRgb(color);
     return { r: acc.r + rgb.r, g: acc.g + rgb.g, b: acc.b + rgb.b };
@@ -350,7 +355,8 @@ function resolvePassiveAura(unit) {
     b: Math.round(mixed.b / count)
   };
   const alpha = Math.min(0.42, 0.26 + (count - 1) * 0.06);
-  return { rgb: `${avg.r},${avg.g},${avg.b}`, alpha: `${alpha}` };
+  const hex = `#${avg.r.toString(16).padStart(2, "0")}${avg.g.toString(16).padStart(2, "0")}${avg.b.toString(16).padStart(2, "0")}`;
+  return { rgb: `${avg.r},${avg.g},${avg.b}`, alpha: `${alpha}`, hex };
 }
 
 function syncUnitPassiveAura(unit, targetEl = null) {
@@ -360,8 +366,27 @@ function syncUnitPassiveAura(unit, targetEl = null) {
   const aura = resolvePassiveAura(unit);
   el.style.setProperty("--passive-aura-rgb", aura.rgb);
   el.style.setProperty("--passive-aura-alpha", aura.alpha);
-  const hasAura = Number.parseFloat(aura.alpha) > 0;
-  el.classList.toggle("passive-aura-active", hasAura);
+  el.style.setProperty("--passive-aura-color", aura.hex);
+}
+
+function getAllUnits() {
+  return [...(state.player || []), ...(state.enemy || [])].filter(Boolean);
+}
+
+function tickPassiveParticles() {
+  getAllUnits().forEach(unit => {
+    if (!unit.alive) return;
+    const aura = resolvePassiveAura(unit);
+    if (Number.parseFloat(aura.alpha) <= 0) return;
+    const el = getUnitCardElement(unit.id);
+    if (!el) return;
+    spawnParticles(el, aura.hex, 2);
+  });
+}
+
+function ensurePassiveParticleLoop() {
+  if (passiveParticleLoop) return;
+  passiveParticleLoop = setInterval(tickPassiveParticles, 900);
 }
 
 
@@ -715,8 +740,7 @@ function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = 
     : "";
   const persistentFxClasses = [...(unit.persistentPassiveFx || [])].join(" ");
   const aura = resolvePassiveAura(unit);
-  const hasAuraClass = Number.parseFloat(aura.alpha) > 0 ? "passive-aura-active" : "";
-  return `<div class="slot ${cls} ${persistentFxClasses} ${hasAuraClass} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}" style="--passive-aura-rgb:${aura.rgb};--passive-aura-alpha:${aura.alpha};">
+  return `<div class="slot ${cls} ${persistentFxClasses} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}" style="--passive-aura-rgb:${aura.rgb};--passive-aura-alpha:${aura.alpha};--passive-aura-color:${aura.hex};">
       <div class="sp-vertical"><div class="sp-fill" style="height:${spPct}%"></div></div>
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
@@ -776,6 +800,7 @@ function renderGrid(teamName, rootEl) {
 function render() {
   renderGrid("enemy", enemyGrid);
   renderGrid("player", playerGrid);
+  ensurePassiveParticleLoop();
 
   const modeText = state.manualBothSides
     ? `模拟战斗1：${state.activeTeam === "player" ? "Player 1" : "Player 2"} 选择 ${state.selectedAction}`
