@@ -7,9 +7,18 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <section id="startScreen" class="start-screen">
+    <div class="start-logo">The Battle Cards</div>
+    <button id="startBtn" class="start-btn">Start</button>
+  </section>
+
+  <div id="gameApp" class="hidden">
   <header class="topbar">
     <div class="logo">The Battle Cards</div>
-    <button id="menuToggle" class="house-btn" aria-label="Open menu">🏠</button>
+    <div class="top-right">
+      <div class="wallet-badge">Wallet: <span id="walletBadgeValue">0</span>G</div>
+      <button id="menuToggle" class="house-btn" aria-label="Open menu">🏠</button>
+    </div>
   </header>
 
   <aside id="sidePanel" class="side-panel">
@@ -70,6 +79,36 @@
       <div id="log" class="log"></div>
     </section>
   </main>
+  </div>
+
+  <section id="packModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Pack</h3>
+        <button id="packCloseBtn">✕</button>
+      </div>
+      <div class="pack-wallet">Wallet: <span id="walletValue">0</span>G</div>
+      <div class="pack-list">
+        <button class="pack-item active" data-pack="man_for_you">
+          <b>Man for You</b>
+          <small>Daily Free Pack</small>
+        </button>
+        <button class="pack-item" data-pack="planes_1">
+          <b>The Planes 1</b>
+          <small>500G</small>
+        </button>
+      </div>
+      <div class="pack-actions">
+        <button id="openPackBtn">Open Pack</button>
+      </div>
+      <div id="packResult" class="pack-result">Select a pack and open it.</div>
+      <div id="packOpening" class="pack-opening hidden">
+        <div id="packFloat" class="pack-float">📦</div>
+        <div id="packHint" class="pack-hint">点击卡包打开</div>
+        <div id="rewardCard" class="reward-card hidden"></div>
+      </div>
+    </div>
+  </section>
 
   <section id="packModal" class="modal hidden">
     <div class="modal-card">

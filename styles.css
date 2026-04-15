@@ -14,6 +14,26 @@ body {
   background: var(--bg);
   color: #e9eef8;
 }
+.hidden { display: none !important; }
+.start-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  gap: 18px;
+  background: radial-gradient(circle at 50% 35%, #1a2d52 0%, #0b1220 62%);
+}
+.start-logo {
+  font-size: clamp(40px, 7vw, 84px);
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.start-btn {
+  padding: 14px 40px;
+  font-size: 22px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #3d63aa, #2b4b87);
+  border: 1px solid #8fb6ff;
+}
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -23,6 +43,19 @@ body {
   border-bottom: 1px solid #2f416b;
 }
 .logo { font-size: 28px; font-weight: 700; }
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wallet-badge {
+  padding: 6px 10px;
+  border: 1px solid #4468a9;
+  border-radius: 8px;
+  background: #162746;
+  color: #d9e6ff;
+  font-size: 14px;
+}
 .house-btn {
   font-size: 24px;
   border: none;

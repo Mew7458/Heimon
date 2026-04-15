@@ -978,6 +978,12 @@ function renderPackModal() {
   document.querySelectorAll(".pack-item").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.pack === selectedPackId);
   });
+  renderWalletBadge();
+}
+
+function renderWalletBadge() {
+  const el = document.getElementById("walletBadgeValue");
+  if (el) el.textContent = profile.wallet;
 }
 
 function applyRewards(rewards) {
@@ -1104,6 +1110,12 @@ document.getElementById("rewardCard").addEventListener("click", () => {
   if (!openingState) return;
   openingState.index += 1;
   showNextRewardCard();
+});
+
+document.getElementById("startBtn").addEventListener("click", () => {
+  document.getElementById("startScreen").classList.add("hidden");
+  document.getElementById("gameApp").classList.remove("hidden");
+  renderWalletBadge();
 });
 
 initBattle("demo");
