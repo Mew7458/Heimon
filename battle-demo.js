@@ -115,6 +115,7 @@ const PACKS = {
     }
   }
 };
+const PACK_ORDER = ["man_for_you", "planes_1"];
 
 let profile = loadProfile();
 let selectedPackId = "man_for_you";
@@ -975,10 +976,17 @@ function addLog(text) {
 
 function renderPackModal() {
   document.getElementById("walletValue").textContent = profile.wallet;
-  document.querySelectorAll(".pack-item").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.pack === selectedPackId);
-  });
+  const pack = PACKS[selectedPackId];
+  document.getElementById("packNameLabel").textContent = pack.name;
+  document.getElementById("packPriceLabel").textContent = pack.dailyFree ? "Daily Free Pack" : `${pack.price}G`;
   renderWalletBadge();
+}
+
+function selectPackByDelta(delta) {
+  const idx = PACK_ORDER.indexOf(selectedPackId);
+  const next = (idx + delta + PACK_ORDER.length) % PACK_ORDER.length;
+  selectedPackId = PACK_ORDER[next];
+  renderPackModal();
 }
 
 function renderWalletBadge() {
@@ -1094,11 +1102,11 @@ document.getElementById("packCloseBtn").addEventListener("click", () => {
   if (openingState) finishPackOpening();
   document.getElementById("packModal").classList.add("hidden");
 });
-document.querySelectorAll(".pack-item").forEach(btn => {
-  btn.addEventListener("click", () => {
-    selectedPackId = btn.dataset.pack;
-    renderPackModal();
-  });
+document.getElementById("packSelector").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (openingState) return;
+  const delta = e.deltaY > 0 ? 1 : -1;
+  selectPackByDelta(delta);
 });
 document.getElementById("openPackBtn").addEventListener("click", openSelectedPack);
 document.getElementById("packFloat").addEventListener("click", () => {
@@ -1108,8 +1116,13 @@ document.getElementById("packFloat").addEventListener("click", () => {
 });
 document.getElementById("rewardCard").addEventListener("click", () => {
   if (!openingState) return;
-  openingState.index += 1;
-  showNextRewardCard();
+  const rewardCard = document.getElementById("rewardCard");
+  rewardCard.classList.add("slide-out");
+  setTimeout(() => {
+    rewardCard.classList.remove("slide-out");
+    openingState.index += 1;
+    showNextRewardCard();
+  }, 280);
 });
 
 document.getElementById("startBtn").addEventListener("click", () => {

@@ -293,20 +293,36 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   align-items: center;
 }
 .pack-wallet { margin: 8px 0; color: #c6d8ff; }
-.pack-list {
+.pack-selector {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 90px 1fr;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #3a5d95;
+  border-radius: 10px;
+  background: #132748;
+  padding: 8px;
 }
-.pack-item {
-  text-align: left;
-  border: 1px solid #4d6fac;
-  background: #1a2d52;
+.gear-column {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  color: #cbdcff;
 }
-.pack-item.active {
-  border-color: #9fc3ff;
-  background: #264884;
+.gear-icon {
+  font-size: 34px;
+  animation: gearSpin 4s linear infinite;
 }
+.pack-current {
+  border: 1px solid #5f83c6;
+  border-radius: 8px;
+  background: #1f396a;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+.pack-current b { font-size: 16px; }
+.pack-current small { color: #c7d6f3; }
 .pack-actions { margin: 10px 0; }
 .pack-result {
   min-height: 80px;
@@ -348,7 +364,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   user-select: none;
 }
 .reward-card.hidden { display: none; }
-.modal-card.opening .pack-list,
+.reward-card.slide-out {
+  animation: rewardSlideDown 0.28s ease forwards;
+}
+.modal-card.opening .pack-selector,
 .modal-card.opening .pack-actions,
 .modal-card.opening .pack-result,
 .modal-card.opening .pack-wallet {
@@ -358,4 +377,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @keyframes packFloat {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
+}
+@keyframes rewardSlideDown {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(22px); opacity: 0; }
+}
+@keyframes gearSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
