@@ -146,6 +146,17 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   box-shadow: inset 0 -36px 0 rgba(var(--passive-aura-rgb), var(--passive-aura-alpha));
   transition: box-shadow 0.45s ease, opacity 0.45s ease;
 }
+@keyframes passiveAuraPulse {
+  0%, 100% {
+    box-shadow: inset 0 -30px 0 rgba(var(--passive-aura-rgb), var(--passive-aura-alpha));
+  }
+  50% {
+    box-shadow: inset 0 -42px 0 rgba(var(--passive-aura-rgb), calc(var(--passive-aura-alpha) + 0.08));
+  }
+}
+.slot.passive-aura-active::after {
+  animation: passiveAuraPulse 1.9s ease-in-out infinite;
+}
 
 @keyframes dashPlayer {
   0% { transform: translateY(0); }

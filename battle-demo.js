@@ -360,6 +360,8 @@ function syncUnitPassiveAura(unit, targetEl = null) {
   const aura = resolvePassiveAura(unit);
   el.style.setProperty("--passive-aura-rgb", aura.rgb);
   el.style.setProperty("--passive-aura-alpha", aura.alpha);
+  const hasAura = Number.parseFloat(aura.alpha) > 0;
+  el.classList.toggle("passive-aura-active", hasAura);
 }
 
 
@@ -713,7 +715,8 @@ function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = 
     : "";
   const persistentFxClasses = [...(unit.persistentPassiveFx || [])].join(" ");
   const aura = resolvePassiveAura(unit);
-  return `<div class="slot ${cls} ${persistentFxClasses} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}" style="--passive-aura-rgb:${aura.rgb};--passive-aura-alpha:${aura.alpha};">
+  const hasAuraClass = Number.parseFloat(aura.alpha) > 0 ? "passive-aura-active" : "";
+  return `<div class="slot ${cls} ${persistentFxClasses} ${hasAuraClass} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}" style="--passive-aura-rgb:${aura.rgb};--passive-aura-alpha:${aura.alpha};">
       <div class="sp-vertical"><div class="sp-fill" style="height:${spPct}%"></div></div>
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
