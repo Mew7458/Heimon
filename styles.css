@@ -115,6 +115,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 8px;
   line-height: 1.4;
 }
+.legend {
+  background: #0f1a30;
+  border: 1px solid #2c3f65;
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.5;
+  display: grid;
+  gap: 2px;
+  color: #d8e0f0;
+}
 .side-panel {
   position: fixed;
   right: -280px;
@@ -131,7 +141,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .side-panel.open { right: 0; }
 
-.slot { position: relative; overflow: hidden; }
+.slot {
+  position: relative;
+  overflow: hidden;
+  --passive-aura-rgb: 255,255,255;
+  --passive-aura-alpha: 0;
+  box-shadow: inset 0 -18px 0 rgba(var(--passive-aura-rgb), calc(var(--passive-aura-alpha) * 0.45));
+  transition: box-shadow 0.45s ease;
+}
 
 @keyframes dashPlayer {
   0% { transform: translateY(0); }
@@ -159,14 +176,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   50% { box-shadow: 0 0 24px rgba(186,104,255,0.9); }
   100% { box-shadow: 0 0 0 rgba(186,104,255,0); }
 }
-@keyframes bloodthirstGlow {
-  0% { box-shadow: inset 0 -30px 0 rgba(255,60,60,0); }
-  100% { box-shadow: inset 0 -30px 0 rgba(255,60,60,0.35); }
-}
-@keyframes engineGlow {
-  0% { box-shadow: inset 0 -30px 0 rgba(220,220,220,0); }
-  100% { box-shadow: inset 0 -30px 0 rgba(220,220,220,0.35); }
-}
 @keyframes particleRise {
   0% { transform: translateY(0); opacity: 0; }
   30% { opacity: 1; }
@@ -178,8 +187,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .attack-shake { animation: shakeMO 0.22s ease; }
 .target-hit { animation: hitFlash 0.25s ease; }
 .target-magic { animation: magicPulse 0.25s ease; }
-.passive-bloodthirst { animation: bloodthirstGlow 0.65s ease; }
-.passive-engine { animation: engineGlow 0.65s ease; }
 .passive-particle {
   position: absolute;
   bottom: 10px;
