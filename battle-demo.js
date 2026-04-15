@@ -74,37 +74,12 @@ const STARTING_FORMATION = {
   enemy: ["Man", null, "Man", "Cat", "Brig", "Cat"]
 };
 
-const SIM1_FORMATION = {
-  player: ["Shiking", "Kog", "Khip", "Spiritue", "Sharkuna", "Gosple"],
-  enemy: ["Sheldor", "Kog", "Shiking", "Sharkuna", "Gosple", "Mao"]
-};
-
-const SIM1_ATTACK_TYPES = {
-  player: [
-    { PO: "Plant", MO: "Rock" },
-    { PO: "Ground", MO: "Water" },
-    { PO: "Plant", MO: "Water" },
-    { PO: "Phantom", MO: "Phantom" },
-    { PO: "Water", MO: "Water" },
-    { PO: "Bug", MO: "Bug" }
-  ],
-  enemy: [
-    { PO: "Ground", MO: "Rock" },
-    { PO: "Water", MO: "Ground" },
-    { PO: "Plant", MO: "Rock" },
-    { PO: "Water", MO: "Water" },
-    { PO: "Bug", MO: "Bug" },
-    { PO: "Normal", MO: "Normal" }
-  ]
-};
-
 const SPECIAL_SKILLS = new Set(["Khip", "Sheldon", "Progenlion", "The Thing", "A Certain Creation - The Eye"]);
 const BASIC_PO_POWER = 0;
 const BASIC_MO_POWER = 0;
 
 const MAX_LEVEL = 50;
 const DEFAULT_BATTLE_LEVEL = 10;
-const SIM_BATTLE_LEVEL = 20;
 let state = {};
 
 const playerGrid = document.getElementById("playerGrid");
@@ -112,6 +87,7 @@ const enemyGrid = document.getElementById("enemyGrid");
 const logEl = document.getElementById("log");
 const phaseText = document.getElementById("phaseText");
 const roundText = document.getElementById("roundText");
+let passiveParticleLoop = null;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -166,6 +142,9 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
     },
     hp: stats.HP,
     alive: true,
+    tempBuffs: [],
+    persistentPassiveFx: new Set(),
+    passiveAuraColors: new Set(),
     team,
     slot,
     level: unitLevel
@@ -173,36 +152,45 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
 }
 
 function initBattle(mode = "demo") {
-  const isSimulation = mode === "sim1";
-  const formation = isSimulation ? SIM1_FORMATION : STARTING_FORMATION;
-  const level = isSimulation ? SIM_BATTLE_LEVEL : DEFAULT_BATTLE_LEVEL;
-
+  const formation = STARTING_FORMATION;
+  const level = DEFAULT_BATTLE_LEVEL;
   state = {
     mode,
     round: 1,
+    step: 1,
     phase: "player-select",
     selected: null,
     selectedAction: "PO",
     activeTeam: "player",
-    manualBothSides: isSimulation,
+    manualBothSides: false,
     resources: {
       player: { sp: 0, skillPoints: 0 },
       enemy: { sp: 0, skillPoints: 0 }
     },
-    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, isSimulation ? SIM1_ATTACK_TYPES.player[i] : null)),
-    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, isSimulation ? SIM1_ATTACK_TYPES.enemy[i] : null)),
+    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, null)),
+    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, null)),
     pending: { player: null, enemy: null },
+    plannedActions: { player: [], enemy: [] },
+    actedThisRound: { player: new Set(), enemy: new Set() },
+    roundStepLimit: 3,
     ended: false
   };
 
   logEl.innerHTML = "";
-  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv20，双方全手动并按顺序选择PO/MO/Skill。");
-  else addLog("Battle started. Default demo mode (player vs AI).");
+  addLog("Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
+  state.roundStepLimit = computeRoundStepLimit();
   render();
+  ensurePassiveParticleLoop();
 }
 
 function getUnit(team, idx) { return state[team][idx]; }
+
+function computeRoundStepLimit() {
+  const playerAlive = state.player.filter(u => u?.alive).length;
+  const enemyAlive = state.enemy.filter(u => u?.alive).length;
+  return Math.max(1, Math.min(3, playerAlive, enemyAlive));
+}
 
 function frontLineIndex(team, col) {
   const front = state[team][col];
@@ -290,15 +278,147 @@ function getUnitCardElement(unitId) {
   return document.querySelector(`[data-unit-id="${unitId}"]`);
 }
 
-function spawnParticles(targetEl, colorClass) {
+function spawnParticles(targetEl, colorClassOrHex, count = 4) {
   if (!targetEl) return;
-  for (let i = 0; i < 4; i += 1) {
+  const isHexColor = typeof colorClassOrHex === "string" && colorClassOrHex.startsWith("#");
+  for (let i = 0; i < count; i += 1) {
     const particle = document.createElement("span");
-    particle.className = `passive-particle ${colorClass}`;
+    particle.className = "passive-particle";
+    if (isHexColor) particle.style.background = colorClassOrHex;
+    else particle.classList.add(colorClassOrHex);
     particle.style.left = `${20 + Math.random() * 60}%`;
     targetEl.appendChild(particle);
     setTimeout(() => particle.remove(), 700);
   }
+}
+
+function applyPassiveFx(unit, cssClass, colorClass, persistent = false) {
+  if (!unit) return;
+  const el = getUnitCardElement(unit.id);
+  if (persistent) {
+    unit.persistentPassiveFx?.add(cssClass);
+    if (colorClass?.startsWith?.("#")) unit.passiveAuraColors?.add(colorClass);
+    if (colorClass === "red") unit.passiveAuraColors?.add("#ff5a5a");
+    if (colorClass === "gray") unit.passiveAuraColors?.add("#d9d9d9");
+    if (colorClass === "green") unit.passiveAuraColors?.add("#69f28f");
+    syncUnitPassiveAura(unit, el);
+  }
+  if (!el) return;
+  el.classList.add(cssClass);
+  spawnParticles(el, colorClass);
+  if (!persistent) setTimeout(() => el.classList.remove(cssClass), 650);
+}
+
+function removePassiveFx(unit, cssClass, colorClass) {
+  if (!unit) return;
+  if (cssClass) unit.persistentPassiveFx?.delete(cssClass);
+  if (colorClass?.startsWith?.("#")) unit.passiveAuraColors?.delete(colorClass);
+  if (colorClass === "red") unit.passiveAuraColors?.delete("#ff5a5a");
+  if (colorClass === "gray") unit.passiveAuraColors?.delete("#d9d9d9");
+  if (colorClass === "green") unit.passiveAuraColors?.delete("#69f28f");
+  syncUnitPassiveAura(unit);
+}
+
+function clearPassiveFx(unit) {
+  if (!unit?.persistentPassiveFx) return;
+  unit.persistentPassiveFx.clear();
+  unit.passiveAuraColors?.clear();
+  syncUnitPassiveAura(unit);
+}
+
+function addTemporaryBuff(unit, stat, amount, source, fxClass = null, fxColor = null) {
+  if (!unit?.alive || !amount) return;
+  unit.stats[stat] = Math.max(0, unit.stats[stat] + amount);
+  unit.tempBuffs.push({ stat, amount, source, expiresRound: state.round, fxClass, fxColor });
+  if (fxClass || fxColor) applyPassiveFx(unit, fxClass, fxColor, true);
+}
+
+function expireRoundBuffs() {
+  getAllUnits().forEach(unit => {
+    if (!unit?.tempBuffs?.length) return;
+    const remaining = [];
+    unit.tempBuffs.forEach(buff => {
+      if (buff.expiresRound <= state.round) {
+        unit.stats[buff.stat] = Math.max(0, unit.stats[buff.stat] - buff.amount);
+        if (buff.fxClass || buff.fxColor) removePassiveFx(unit, buff.fxClass, buff.fxColor);
+        addLog(`Buff Ended: ${buff.source} on ${unit.name}.`);
+      } else {
+        remaining.push(buff);
+      }
+    });
+    unit.tempBuffs = remaining;
+  });
+}
+
+function canActThisRound(team, unit) {
+  const aliveCount = state[team].filter(u => u?.alive).length;
+  if (aliveCount <= 1) return true;
+  return !state.actedThisRound[team].has(unit.id);
+}
+
+function registerRoundAction(team, unit) {
+  const aliveCount = state[team].filter(u => u?.alive).length;
+  if (aliveCount <= 1) return;
+  state.actedThisRound[team].add(unit.id);
+}
+
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const value = Number.parseInt(clean, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255
+  };
+}
+
+function resolvePassiveAura(unit) {
+  const colors = [...(unit?.passiveAuraColors || [])];
+  if (!colors.length) return { rgb: "255,255,255", alpha: "0", hex: "#ffffff" };
+  const mixed = colors.reduce((acc, color) => {
+    const rgb = hexToRgb(color);
+    return { r: acc.r + rgb.r, g: acc.g + rgb.g, b: acc.b + rgb.b };
+  }, { r: 0, g: 0, b: 0 });
+  const count = colors.length;
+  const avg = {
+    r: Math.round(mixed.r / count),
+    g: Math.round(mixed.g / count),
+    b: Math.round(mixed.b / count)
+  };
+  const alpha = Math.min(0.42, 0.26 + (count - 1) * 0.06);
+  const hex = `#${avg.r.toString(16).padStart(2, "0")}${avg.g.toString(16).padStart(2, "0")}${avg.b.toString(16).padStart(2, "0")}`;
+  return { rgb: `${avg.r},${avg.g},${avg.b}`, alpha: `${alpha}`, hex };
+}
+
+function syncUnitPassiveAura(unit, targetEl = null) {
+  if (!unit) return;
+  const el = targetEl || getUnitCardElement(unit.id);
+  if (!el) return;
+  const aura = resolvePassiveAura(unit);
+  el.style.setProperty("--passive-aura-rgb", aura.rgb);
+  el.style.setProperty("--passive-aura-alpha", aura.alpha);
+  el.style.setProperty("--passive-aura-color", aura.hex);
+}
+
+function getAllUnits() {
+  return [...(state.player || []), ...(state.enemy || [])].filter(Boolean);
+}
+
+function tickPassiveParticles() {
+  getAllUnits().forEach(unit => {
+    if (!unit.alive) return;
+    const aura = resolvePassiveAura(unit);
+    if (Number.parseFloat(aura.alpha) <= 0) return;
+    const el = getUnitCardElement(unit.id);
+    if (!el) return;
+    spawnParticles(el, aura.hex, 8);
+  });
+}
+
+function ensurePassiveParticleLoop() {
+  if (passiveParticleLoop) return;
+  tickPassiveParticles();
+  passiveParticleLoop = setInterval(tickPassiveParticles, 1200);
 }
 
 
@@ -360,35 +480,19 @@ async function playAttackAnimation(attacker, defender, action) {
 }
 
 function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
-  const attackerEl = getUnitCardElement(attacker.id);
-
   if (attacker.ability?.includes("Engine") && damage > 0) {
     attacker.stats.Spd = Math.max(1, Math.round(attacker.stats.Spd * 1.1));
     addLog(`Passive Triggered: Engine on ${attacker.name} (+10% Spd).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    applyPassiveFx(attacker, "passive-engine", "gray", true);
   }
   if (attacker.ability?.includes("Fear") && Math.random() < 0.25) {
-    attacker.stats.Spd += 5;
-    addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd this battle).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    addTemporaryBuff(attacker, "Spd", 5, "Fear", "passive-fear", "#b388ff");
+    addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd until round end).`);
   }
 
   if (attacker.ability?.includes("Harden") && Math.random() < 0.25) {
-    attacker.stats.Def += 5;
-    addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def this battle).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    addTemporaryBuff(attacker, "Def", 5, "Harden", "passive-harden", "#7dd3fc");
+    addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def until round end).`);
   }
 
   if (attacker.ability?.includes("Absorb") && damage > 0) healUnit(attacker, Math.max(1, damage * 0.1), "Absorb");
@@ -397,19 +501,11 @@ function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
   if (defeatedTarget && attacker.ability?.includes("Bloodthirst+")) {
     attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.2));
     addLog(`Passive Triggered: Bloodthirst+ on ${attacker.name} (+20% PO).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-bloodthirst");
-      spawnParticles(attackerEl, "red");
-      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
-    }
+    applyPassiveFx(attacker, "passive-bloodthirst", "red", true);
   } else if (defeatedTarget && attacker.ability?.includes("Bloodthirst")) {
     attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.1));
     addLog(`Passive Triggered: Bloodthirst on ${attacker.name} (+10% PO).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-bloodthirst");
-      spawnParticles(attackerEl, "red");
-      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
-    }
+    applyPassiveFx(attacker, "passive-bloodthirst", "red", true);
   }
 
   if (defeatedTarget && attacker.ability?.includes("Our Tides")) {
@@ -427,7 +523,10 @@ function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
     const reflect = Math.max(1, Math.round(damage * 0.05));
     attacker.hp = Math.max(0, attacker.hp - reflect);
     addLog(`Passive Triggered: Thorns reflects ${reflect} to ${attacker.name}.`);
-    if (attacker.hp <= 0) attacker.alive = false;
+    if (attacker.hp <= 0) {
+      attacker.alive = false;
+      clearPassiveFx(attacker);
+    }
   }
 
   if (defender.ability?.includes("Resilience") && damage > 0) {
@@ -493,7 +592,10 @@ function computeFinalDamage(attacker, defender, action) {
 function dealDamage(attacker, defender, action) {
   const dmg = computeFinalDamage(attacker, defender, action);
   defender.hp = Math.max(0, defender.hp - dmg);
-  if (defender.hp <= 0) defender.alive = false;
+  if (defender.hp <= 0) {
+    defender.alive = false;
+    clearPassiveFx(defender);
+  }
   addLog(`${attacker.team.toUpperCase()} ${attacker.name} ${action.kind}(${action.attackType}) -> ${defender.name} for ${dmg}.`);
   if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
   triggerPassives(attacker, defender, dmg, !defender.alive, action);
@@ -501,7 +603,7 @@ function dealDamage(attacker, defender, action) {
 
 
 function chooseBestEnemyAction() {
-  const enemyCandidates = state.enemy.filter(u => u?.alive);
+  const enemyCandidates = state.enemy.filter(u => u?.alive && canActThisRound("enemy", u));
   let best = null;
   enemyCandidates.forEach(attacker => {
     const action = actionToDamageModel(attacker, "PO");
@@ -540,7 +642,7 @@ async function resolveRound() {
   state.phase = "resolving";
   render();
 
-  const actions = [state.pending.player, state.pending.enemy].filter(Boolean).map(action => {
+  const actions = [...state.plannedActions.player, ...state.plannedActions.enemy].filter(Boolean).map(action => {
     const attacker = getUnitById(action.team, action.attackerId);
     if (!attacker?.alive) return null;
     const model = actionToDamageModel(attacker, action.actionMode);
@@ -566,15 +668,49 @@ async function resolveRound() {
 
   checkBattleEnd();
   if (!state.ended) {
+    expireRoundBuffs();
     grantRoundResources();
     state.round += 1;
+    state.step = 1;
+    state.actedThisRound.player.clear();
+    state.actedThisRound.enemy.clear();
+    state.roundStepLimit = computeRoundStepLimit();
+  }
+  state.pending.player = null;
+  state.pending.enemy = null;
+  state.plannedActions.player = [];
+  state.plannedActions.enemy = [];
+  state.selected = null;
+  state.selectedAction = "PO";
+  state.activeTeam = "player";
+  state.phase = state.ended ? "ended" : "player-select";
+  render();
+}
+
+function lockCurrentStepAndContinue() {
+  if (state.pending.player) {
+    const playerUnit = getUnitById("player", state.pending.player.attackerId);
+    if (playerUnit) registerRoundAction("player", playerUnit);
+    state.plannedActions.player.push(state.pending.player);
+  }
+  if (state.pending.enemy) {
+    const enemyUnit = getUnitById("enemy", state.pending.enemy.attackerId);
+    if (enemyUnit) registerRoundAction("enemy", enemyUnit);
+    state.plannedActions.enemy.push(state.pending.enemy);
   }
   state.pending.player = null;
   state.pending.enemy = null;
   state.selected = null;
   state.selectedAction = "PO";
-  state.activeTeam = "player";
-  state.phase = state.ended ? "ended" : "player-select";
+
+  if (state.step >= state.roundStepLimit) {
+    addLog(`${state.roundStepLimit}步行动已锁定，开始按速度统一结算。`);
+    setTimeout(resolveRound, 250);
+    return;
+  }
+
+  state.step += 1;
+  addLog(`Step ${state.step}/${state.roundStepLimit} 开始选择行动。`);
   render();
 }
 
@@ -584,7 +720,7 @@ function commitTeamAction(team, attacker, targetIdx, actionMode) {
 
   if (!state.manualBothSides) {
     state.pending.enemy = chooseBestEnemyAction();
-    setTimeout(resolveRound, 250);
+    lockCurrentStepAndContinue();
     return;
   }
 
@@ -594,7 +730,7 @@ function commitTeamAction(team, attacker, targetIdx, actionMode) {
 
   if (state.pending.player && state.pending.enemy) {
     addLog("双方行动已选定，按速度结算。");
-    setTimeout(resolveRound, 250);
+    lockCurrentStepAndContinue();
   } else {
     addLog(`${team === "player" ? "Player 1" : "Player 2"} 已锁定行动，等待对方。`);
     render();
@@ -608,6 +744,10 @@ function onSlotClick(team, idx) {
   const selectingTeam = state.manualBothSides ? state.activeTeam : "player";
   if (!state.selected) {
     if (team !== selectingTeam || !unit?.alive) return;
+    if (!canActThisRound(selectingTeam, unit)) {
+      addLog(`${unit.name} already acted this round (max 1 action per round).`);
+      return;
+    }
     state.selected = { team, id: unit.id };
     render();
     return;
@@ -622,6 +762,10 @@ function onSlotClick(team, idx) {
 
   if (team === selectingTeam) {
     if (!unit?.alive) return;
+    if (!canActThisRound(selectingTeam, unit)) {
+      addLog(`${unit.name} already acted this round (max 1 action per round).`);
+      return;
+    }
     state.selected = { team, id: unit.id };
     render();
     return;
@@ -666,7 +810,9 @@ function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = 
         ${showSkill ? `<button class="card-action ${actionMode === "SKILL" ? "active" : ""}" data-action="SKILL">Skill</button>` : ""}
       </div>`
     : "";
-  return `<div class="slot ${cls} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}">
+  const persistentFxClasses = [...(unit.persistentPassiveFx || [])].join(" ");
+  const aura = resolvePassiveAura(unit);
+  return `<div class="slot ${cls} ${persistentFxClasses} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}" style="--passive-aura-rgb:${aura.rgb};--passive-aura-alpha:${aura.alpha};--passive-aura-color:${aura.hex};">
       <div class="sp-vertical"><div class="sp-fill" style="height:${spPct}%"></div></div>
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
@@ -726,13 +872,12 @@ function renderGrid(teamName, rootEl) {
 function render() {
   renderGrid("enemy", enemyGrid);
   renderGrid("player", playerGrid);
+  ensurePassiveParticleLoop();
 
-  const modeText = state.manualBothSides
-    ? `模拟战斗1：${state.activeTeam === "player" ? "Player 1" : "Player 2"} 选择 ${state.selectedAction}`
-    : (state.phase === "resolving" ? "Resolving by Speed" : "Choose Action");
+  const modeText = state.phase === "resolving" ? "Resolving by Speed" : "Choose Action";
 
   phaseText.textContent = state.phase === "ended" ? "Battle Ended" : modeText;
-  roundText.textContent = `Round ${state.round} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
+  roundText.textContent = `Round ${state.round} Step ${state.step}/${state.roundStepLimit} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
 
   document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended || state.manualBothSides;
 }
@@ -751,12 +896,11 @@ document.getElementById("endTurnBtn").addEventListener("click", () => {
   if (state.phase !== "player-select" || state.ended || state.manualBothSides) return;
   state.pending.player = null;
   state.pending.enemy = chooseBestEnemyAction();
-  addLog("Player chooses to wait this round. Enemy action only.");
-  setTimeout(resolveRound, 250);
+  addLog(`Player skips Step ${state.step}/${state.roundStepLimit}. Enemy action locked.`);
+  lockCurrentStepAndContinue();
 });
 
 document.getElementById("restartBtn").addEventListener("click", () => initBattle(state.mode || "demo"));
-document.getElementById("sim1Btn").addEventListener("click", () => initBattle("sim1"));
 document.getElementById("resetBtn").addEventListener("click", () => initBattle("demo"));
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.getElementById("sidePanel").classList.toggle("open");
