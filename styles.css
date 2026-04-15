@@ -94,7 +94,7 @@ main { padding: 16px; max-width: 900px; margin: 0 auto; }
   overflow: hidden;
   margin: 6px 0;
 }
-.hpfill { height: 100%; background: #66bb6a; }
+.hpfill { height: 100%; background: #66bb6a; transition: width 0.5s linear; }
 small { color: #bcc7dd; }
 .controls { margin: 14px 0; display: flex; gap: 8px; }
 button {

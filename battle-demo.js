@@ -278,6 +278,20 @@ function getUnitCardElement(unitId) {
   return document.querySelector(`[data-unit-id="${unitId}"]`);
 }
 
+function syncUnitCardMetrics(unit) {
+  if (!unit) return;
+  const card = getUnitCardElement(unit.id);
+  if (!card) return;
+  const hpPct = Math.max(0, Math.round((unit.hp / Math.max(1, unit.stats.HP)) * 100));
+  const hpFill = card.querySelector(".hpfill");
+  if (hpFill) hpFill.style.width = `${hpPct}%`;
+  const statLine = card.querySelector(".stat-line");
+  if (statLine) {
+    statLine.textContent = `HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}`;
+  }
+  if (!unit.alive) card.classList.add("dead");
+}
+
 function spawnParticles(targetEl, colorClassOrHex, count = 4) {
   if (!targetEl) return;
   const isHexColor = typeof colorClassOrHex === "string" && colorClassOrHex.startsWith("#");
@@ -430,6 +444,7 @@ function healUnit(unit, amount, reason) {
   const actual = unit.hp - before;
   if (actual <= 0) return;
   addLog(`Heal: ${unit.name} +${actual} HP (${reason}).`);
+  syncUnitCardMetrics(unit);
   const el = getUnitCardElement(unit.id);
   if (el) {
     el.classList.add("passive-heal");
@@ -599,6 +614,8 @@ function dealDamage(attacker, defender, action) {
   addLog(`${attacker.team.toUpperCase()} ${attacker.name} ${action.kind}(${action.attackType}) -> ${defender.name} for ${dmg}.`);
   if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
   triggerPassives(attacker, defender, dmg, !defender.alive, action);
+  syncUnitCardMetrics(attacker);
+  syncUnitCardMetrics(defender);
 }
 
 
@@ -659,10 +676,12 @@ async function resolveRound() {
         state.resources[action.team].skillPoints -= 1;
         await playAttackAnimation(action.attacker, action.defender, action.model);
         dealDamage(action.attacker, action.defender, action.model);
+        await sleep(500);
       }
     } else {
       await playAttackAnimation(action.attacker, action.defender, action.model);
       dealDamage(action.attacker, action.defender, action.model);
+      await sleep(500);
     }
   }
 
@@ -820,7 +839,7 @@ function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = 
       <div class="face">${face}</div>
       <small>${unit.ability} | PO:${unit.attackTypes.PO} MO:${unit.attackTypes.MO}</small>
       <div class="hpbar"><div class="hpfill" style="width:${hpPct}%"></div></div>
-      <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
+      <small class="stat-line">HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
       <small>SP ${res.sp}/100 | Skill ${res.skillPoints}</small>
       ${actionMenu}
     </div>`;
