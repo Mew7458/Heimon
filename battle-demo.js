@@ -380,13 +380,14 @@ function tickPassiveParticles() {
     if (Number.parseFloat(aura.alpha) <= 0) return;
     const el = getUnitCardElement(unit.id);
     if (!el) return;
-    spawnParticles(el, aura.hex, 2);
+    spawnParticles(el, aura.hex, 8);
   });
 }
 
 function ensurePassiveParticleLoop() {
   if (passiveParticleLoop) return;
-  passiveParticleLoop = setInterval(tickPassiveParticles, 900);
+  tickPassiveParticles();
+  passiveParticleLoop = setInterval(tickPassiveParticles, 1200);
 }
 
 
