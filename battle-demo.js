@@ -88,6 +88,37 @@ const logEl = document.getElementById("log");
 const phaseText = document.getElementById("phaseText");
 const roundText = document.getElementById("roundText");
 let passiveParticleLoop = null;
+const SAVE_KEY = "tbc_demo_profile_v1";
+const PACKS = {
+  man_for_you: {
+    name: "Man for You",
+    price: 0,
+    dailyFree: true,
+    open(profile) {
+      const rewards = [{ kind: "gold", amount: 10 }, { kind: "gold", amount: 10 }];
+      rewards.push(Math.random() < 0.5 ? { kind: "gold", amount: 20 } : { kind: "card", name: "Man", amount: 1 });
+      rewards.push({ kind: "card", name: "Man", amount: 1 });
+      return rewards;
+    }
+  },
+  planes_1: {
+    name: "The Planes 1",
+    price: 500,
+    dailyFree: false,
+    open(profile) {
+      return [
+        rollReward([{ card: "Man", p: 25 }, { card: "Brig", p: 25 }, { card: "Cat", p: 25 }, { card: "Shizi", p: 20 }, { card: "Kog", p: 5 }]),
+        rollReward([{ card: "Man", p: 25 }, { card: "Brig", p: 25 }, { card: "Cat", p: 25 }, { card: "Shizi", p: 20 }, { card: "Kog", p: 5 }]),
+        rollReward([{ card: "Man", p: 10 }, { card: "Brig", p: 15 }, { card: "Cat", p: 15 }, { card: "Shizi", p: 15 }, { card: "Kog", p: 15 }, { card: "Dandi", p: 15 }, { card: "Wit", p: 15 }]),
+        rollReward([{ card: "Man", p: 5 }, { card: "Brig", p: 15 }, { card: "Cat", p: 15 }, { card: "Shizi", p: 15 }, { card: "Kog", p: 15 }, { card: "Dandi", p: 15 }, { card: "Wit", p: 15 }, { card: "Spiritue", p: 5 }]),
+      ];
+    }
+  }
+};
+
+let profile = loadProfile();
+let selectedPackId = "man_for_you";
+let openingState = null;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -97,6 +128,40 @@ function scaleStat(baseValue, level, kind) {
   if (kind === "Def" || kind === "MR") return Math.round(baseValue * (1 + 0.045 * n));
   if (kind === "Spd") return Math.round(baseValue * (1 + 0.02 * n));
   return baseValue;
+}
+
+function rollReward(weightedCards) {
+  const roll = Math.random() * 100;
+  let acc = 0;
+  for (const entry of weightedCards) {
+    acc += entry.p;
+    if (roll <= acc) return { kind: "card", name: entry.card, amount: 1 };
+  }
+  const fallback = weightedCards[weightedCards.length - 1];
+  return { kind: "card", name: fallback.card, amount: 1 };
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return { wallet: 1000, cards: {}, lastFreePackDate: null };
+    const parsed = JSON.parse(raw);
+    return {
+      wallet: Number.isFinite(parsed.wallet) ? parsed.wallet : 1000,
+      cards: parsed.cards || {},
+      lastFreePackDate: parsed.lastFreePackDate || null
+    };
+  } catch {
+    return { wallet: 1000, cards: {}, lastFreePackDate: null };
+  }
+}
+
+function saveProfile() {
+  localStorage.setItem(SAVE_KEY, JSON.stringify(profile));
 }
 
 function computeStats(baseStats, level) {
@@ -908,6 +973,96 @@ function addLog(text) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+function renderPackModal() {
+  document.getElementById("walletValue").textContent = profile.wallet;
+  document.querySelectorAll(".pack-item").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.pack === selectedPackId);
+  });
+}
+
+function applyRewards(rewards) {
+  rewards.forEach(reward => {
+    if (reward.kind === "gold") {
+      profile.wallet += reward.amount;
+    } else if (reward.kind === "card") {
+      profile.cards[reward.name] = (profile.cards[reward.name] || 0) + reward.amount;
+    }
+  });
+}
+
+function formatRewardList(rewards) {
+  return rewards.map((r, i) => {
+    if (r.kind === "gold") return `第${i + 1}张: +${r.amount}G`;
+    return `第${i + 1}张: ${r.name} x${r.amount}`;
+  }).join("\n");
+}
+
+function openSelectedPack() {
+  if (openingState) return;
+  const pack = PACKS[selectedPackId];
+  if (!pack) return;
+  if (pack.dailyFree && profile.lastFreePackDate === todayKey()) {
+    document.getElementById("packResult").textContent = "Man for You 今天已领取，请明天再来。";
+    return;
+  }
+  if (profile.wallet < pack.price) {
+    document.getElementById("packResult").textContent = `G 不足，${pack.name} 需要 ${pack.price}G。`;
+    return;
+  }
+  profile.wallet -= pack.price;
+  const rewards = pack.open(profile);
+  applyRewards(rewards);
+  if (pack.dailyFree) profile.lastFreePackDate = todayKey();
+  saveProfile();
+  renderPackModal();
+  startPackOpening(pack.name, rewards);
+}
+
+function startPackOpening(packName, rewards) {
+  openingState = { packName, rewards, index: 0 };
+  const modalCard = document.querySelector("#packModal .modal-card");
+  const opening = document.getElementById("packOpening");
+  const packFloat = document.getElementById("packFloat");
+  const rewardCard = document.getElementById("rewardCard");
+  const hint = document.getElementById("packHint");
+  modalCard.classList.add("opening");
+  opening.classList.remove("hidden");
+  packFloat.classList.remove("hidden");
+  rewardCard.classList.add("hidden");
+  hint.textContent = `点击 ${packName} 卡包，开始开包`;
+}
+
+function rewardToText(reward) {
+  if (reward.kind === "gold") return `+${reward.amount}G`;
+  return `${reward.name} ×${reward.amount}`;
+}
+
+function showNextRewardCard() {
+  if (!openingState) return;
+  const rewardCard = document.getElementById("rewardCard");
+  const hint = document.getElementById("packHint");
+  if (openingState.index >= openingState.rewards.length) {
+    finishPackOpening();
+    return;
+  }
+  const reward = openingState.rewards[openingState.index];
+  rewardCard.classList.remove("hidden");
+  rewardCard.textContent = `第${openingState.index + 1}张\n${rewardToText(reward)}\n(点击继续)`;
+  hint.textContent = "逐张翻开中…";
+}
+
+function finishPackOpening() {
+  if (!openingState) return;
+  const modalCard = document.querySelector("#packModal .modal-card");
+  const opening = document.getElementById("packOpening");
+  const rewardCard = document.getElementById("rewardCard");
+  modalCard.classList.remove("opening");
+  opening.classList.add("hidden");
+  rewardCard.classList.add("hidden");
+  document.getElementById("packResult").textContent = `${openingState.packName} 开包结果：\n${formatRewardList(openingState.rewards)}`;
+  openingState = null;
+}
+
 document.getElementById("poBtn").addEventListener("click", () => { state.selectedAction = "PO"; render(); });
 document.getElementById("moBtn").addEventListener("click", () => { state.selectedAction = "MO"; render(); });
 document.getElementById("skillBtn").addEventListener("click", () => { state.selectedAction = "SKILL"; render(); });
@@ -924,6 +1079,31 @@ document.getElementById("restartBtn").addEventListener("click", () => initBattle
 document.getElementById("resetBtn").addEventListener("click", () => initBattle("demo"));
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.getElementById("sidePanel").classList.toggle("open");
+});
+document.getElementById("packBtn").addEventListener("click", () => {
+  document.getElementById("packModal").classList.remove("hidden");
+  renderPackModal();
+});
+document.getElementById("packCloseBtn").addEventListener("click", () => {
+  if (openingState) finishPackOpening();
+  document.getElementById("packModal").classList.add("hidden");
+});
+document.querySelectorAll(".pack-item").forEach(btn => {
+  btn.addEventListener("click", () => {
+    selectedPackId = btn.dataset.pack;
+    renderPackModal();
+  });
+});
+document.getElementById("openPackBtn").addEventListener("click", openSelectedPack);
+document.getElementById("packFloat").addEventListener("click", () => {
+  if (!openingState) return;
+  document.getElementById("packFloat").classList.add("hidden");
+  showNextRewardCard();
+});
+document.getElementById("rewardCard").addEventListener("click", () => {
+  if (!openingState) return;
+  openingState.index += 1;
+  showNextRewardCard();
 });
 
 initBattle("demo");
