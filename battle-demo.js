@@ -172,17 +172,25 @@ function initBattle(mode = "demo") {
     pending: { player: null, enemy: null },
     plannedActions: { player: [], enemy: [] },
     actedThisRound: { player: new Set(), enemy: new Set() },
+    roundStepLimit: 3,
     ended: false
   };
 
   logEl.innerHTML = "";
   addLog("Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
+  state.roundStepLimit = computeRoundStepLimit();
   render();
   ensurePassiveParticleLoop();
 }
 
 function getUnit(team, idx) { return state[team][idx]; }
+
+function computeRoundStepLimit() {
+  const playerAlive = state.player.filter(u => u?.alive).length;
+  const enemyAlive = state.enemy.filter(u => u?.alive).length;
+  return Math.max(1, Math.min(3, playerAlive, enemyAlive));
+}
 
 function frontLineIndex(team, col) {
   const front = state[team][col];
@@ -666,6 +674,7 @@ async function resolveRound() {
     state.step = 1;
     state.actedThisRound.player.clear();
     state.actedThisRound.enemy.clear();
+    state.roundStepLimit = computeRoundStepLimit();
   }
   state.pending.player = null;
   state.pending.enemy = null;
@@ -679,21 +688,29 @@ async function resolveRound() {
 }
 
 function lockCurrentStepAndContinue() {
-  if (state.pending.player) state.plannedActions.player.push(state.pending.player);
-  if (state.pending.enemy) state.plannedActions.enemy.push(state.pending.enemy);
+  if (state.pending.player) {
+    const playerUnit = getUnitById("player", state.pending.player.attackerId);
+    if (playerUnit) registerRoundAction("player", playerUnit);
+    state.plannedActions.player.push(state.pending.player);
+  }
+  if (state.pending.enemy) {
+    const enemyUnit = getUnitById("enemy", state.pending.enemy.attackerId);
+    if (enemyUnit) registerRoundAction("enemy", enemyUnit);
+    state.plannedActions.enemy.push(state.pending.enemy);
+  }
   state.pending.player = null;
   state.pending.enemy = null;
   state.selected = null;
   state.selectedAction = "PO";
 
-  if (state.step >= 3) {
-    addLog("三步行动已锁定，开始按速度统一结算。");
+  if (state.step >= state.roundStepLimit) {
+    addLog(`${state.roundStepLimit}步行动已锁定，开始按速度统一结算。`);
     setTimeout(resolveRound, 250);
     return;
   }
 
   state.step += 1;
-  addLog(`Step ${state.step}/3 开始选择行动。`);
+  addLog(`Step ${state.step}/${state.roundStepLimit} 开始选择行动。`);
   render();
 }
 
@@ -861,7 +878,7 @@ function render() {
   const modeText = state.phase === "resolving" ? "Resolving by Speed" : "Choose Action";
 
   phaseText.textContent = state.phase === "ended" ? "Battle Ended" : modeText;
-  roundText.textContent = `Round ${state.round} Step ${state.step}/3 | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
+  roundText.textContent = `Round ${state.round} Step ${state.step}/${state.roundStepLimit} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
 
   document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended || state.manualBothSides;
 }
@@ -880,7 +897,7 @@ document.getElementById("endTurnBtn").addEventListener("click", () => {
   if (state.phase !== "player-select" || state.ended || state.manualBothSides) return;
   state.pending.player = null;
   state.pending.enemy = chooseBestEnemyAction();
-  addLog(`Player skips Step ${state.step}/3. Enemy action locked.`);
+  addLog(`Player skips Step ${state.step}/${state.roundStepLimit}. Enemy action locked.`);
   lockCurrentStepAndContinue();
 });
 
