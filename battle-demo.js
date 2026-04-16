@@ -982,6 +982,7 @@ function onSlotClick(team, idx) {
   if (!valid.includes(idx)) return;
 
   addLog(`${selectingTeam === "player" ? "Player 1" : "Player 2"} selects ${attacker.name} ${actionMode} -> ${unit.name}`);
+  registerRoundAction(selectingTeam, attacker);
   commitTeamAction(selectingTeam, attacker, idx, actionMode);
 }
 
