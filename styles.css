@@ -75,10 +75,26 @@ main { padding: 16px; max-width: 900px; margin: 0 auto; }
   border: 1px solid #557;
   border-radius: 8px;
   width: 150px;
-  height: 90px;
+  height: 110px;
   display: grid;
-  place-items: center;
+  grid-template-columns: repeat(15, 1fr);
+  gap: 1px;
+  padding: 4px;
   background: #141f35;
+  margin-bottom: 4px;
+}
+.mini-cell {
+  background: #1e2c49;
+  border-radius: 2px;
+}
+.mini-cell.wall { background: #59607a; }
+.mini-cell.player { background: #78ffd6; }
+.mini-cell.enemy { background: #ff8f8f; }
+.mini-cell.exit { background: #ffd57a; }
+.map-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
 }
 .battlefield {
   background: #111c31;

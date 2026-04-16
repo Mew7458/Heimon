@@ -116,6 +116,31 @@ const PACKS = {
   }
 };
 const PACK_ORDER = ["man_for_you", "planes_1"];
+const MAPS = {
+  "Cave1-1": {
+    width: 15, height: 11, spawn: { x: 5, y: 6 },
+    exits: [{ x: 15, y: 6, to: "Cave1-2", spawn: { x: 1, y: 6 } }],
+    walls: [],
+    enemies: []
+  },
+  "Cave1-2": {
+    width: 15, height: 11, spawn: { x: 6, y: 1 },
+    exits: [{ x: 15, y: 6, to: "Cave1-3", spawn: { x: 1, y: 6 } }],
+    walls: [{ x1: 7, y1: 5, x2: 9, y2: 7 }],
+    enemies: []
+  },
+  "Cave1-3": {
+    width: 10, height: 28, spawn: { x: 6, y: 1 },
+    exits: [{ x: 10, y: 28, to: null, spawn: null }],
+    walls: [],
+    enemies: [
+      { id: "m1", x: 4, y: 13 },
+      { id: "m2", x: 7, y: 17 },
+      { id: "m3", x: 3, y: 20 },
+      { id: "m4", x: 8, y: 24 }
+    ]
+  }
+};
 
 let profile = loadProfile();
 let selectedPackId = "man_for_you";
@@ -149,15 +174,17 @@ function todayKey() {
 function loadProfile() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { wallet: 1000, cards: {}, lastFreePackDate: null };
+    if (!raw) return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {} };
     const parsed = JSON.parse(raw);
     return {
       wallet: Number.isFinite(parsed.wallet) ? parsed.wallet : 1000,
       cards: parsed.cards || {},
-      lastFreePackDate: parsed.lastFreePackDate || null
+      lastFreePackDate: parsed.lastFreePackDate || null,
+      map: parsed.map || { id: "Cave1-1", x: 5, y: 6 },
+      defeatedEnemies: parsed.defeatedEnemies || {}
     };
   } catch {
-    return { wallet: 1000, cards: {}, lastFreePackDate: null };
+    return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {} };
   }
 }
 
@@ -994,6 +1021,69 @@ function renderWalletBadge() {
   if (el) el.textContent = profile.wallet;
 }
 
+function isWall(map, x, y) {
+  return map.walls.some(w => x >= w.x1 && x <= w.x2 && y >= w.y1 && y <= w.y2);
+}
+
+function enemyAtPosition(mapId, x, y) {
+  const map = MAPS[mapId];
+  return map.enemies.find(enemy => enemy.x === x && enemy.y === y && !profile.defeatedEnemies[`${mapId}:${enemy.id}`]);
+}
+
+function renderMap() {
+  const minimap = document.getElementById("minimap");
+  const info = document.getElementById("mapInfo");
+  if (!minimap || !info) return;
+  minimap.innerHTML = "";
+  const map = MAPS[profile.map.id];
+  const viewW = 15;
+  const viewH = 11;
+  const startX = Math.max(1, Math.min(profile.map.x - Math.floor(viewW / 2), map.width - viewW + 1));
+  const startY = Math.max(1, Math.min(profile.map.y - Math.floor(viewH / 2), map.height - viewH + 1));
+  for (let y = startY; y < startY + viewH; y += 1) {
+    for (let x = startX; x < startX + viewW; x += 1) {
+      const cell = document.createElement("div");
+      cell.className = "mini-cell";
+      if (x > map.width || y > map.height) {
+        cell.classList.add("wall");
+      } else {
+        if (isWall(map, x, y)) cell.classList.add("wall");
+        if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
+        if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
+        if (profile.map.x === x && profile.map.y === y) cell.classList.add("player");
+      }
+      minimap.appendChild(cell);
+    }
+  }
+  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y})`;
+}
+
+function tryMovePlayer(dx, dy) {
+  const map = MAPS[profile.map.id];
+  const nx = profile.map.x + dx;
+  const ny = profile.map.y + dy;
+  if (nx < 1 || nx > map.width || ny < 1 || ny > map.height) return;
+  if (isWall(map, nx, ny)) return;
+  profile.map.x = nx;
+  profile.map.y = ny;
+  const enemy = enemyAtPosition(profile.map.id, nx, ny);
+  if (enemy) {
+    profile.defeatedEnemies[`${profile.map.id}:${enemy.id}`] = true;
+    profile.wallet += 10;
+    addLog(`遭遇 Man 并胜利，获得 10G。`);
+  }
+  const exit = map.exits.find(e => e.x === nx && e.y === ny);
+  if (exit && exit.to) {
+    profile.map.id = exit.to;
+    profile.map.x = exit.spawn.x;
+    profile.map.y = exit.spawn.y;
+    addLog(`进入地图 ${exit.to}。`);
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
+}
+
 function applyRewards(rewards) {
   rewards.forEach(reward => {
     if (reward.kind === "gold") {
@@ -1129,6 +1219,26 @@ document.getElementById("startBtn").addEventListener("click", () => {
   document.getElementById("startScreen").classList.add("hidden");
   document.getElementById("gameApp").classList.remove("hidden");
   renderWalletBadge();
+  renderMap();
+});
+document.getElementById("saveBtn").addEventListener("click", () => {
+  saveProfile();
+  addLog("存档成功。");
+});
+document.getElementById("loadBtn").addEventListener("click", () => {
+  profile = loadProfile();
+  renderWalletBadge();
+  renderMap();
+  addLog("已读取存档。");
+});
+window.addEventListener("keydown", (e) => {
+  if (document.getElementById("gameApp").classList.contains("hidden")) return;
+  if (!document.getElementById("packModal").classList.contains("hidden")) return;
+  const key = e.key.toLowerCase();
+  if (key === "w") tryMovePlayer(0, -1);
+  if (key === "s") tryMovePlayer(0, 1);
+  if (key === "a") tryMovePlayer(-1, 0);
+  if (key === "d") tryMovePlayer(1, 0);
 });
 
 initBattle("demo");
