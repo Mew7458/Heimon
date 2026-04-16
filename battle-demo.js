@@ -186,24 +186,18 @@ function todayKey() {
 }
 
 function defaultProfile() {
-  const base = {
-    Man: [{ id: "c1", level: 1, rank: 0, currentHp: computeStats(CARDS.Man.baseStats, 1).HP }],
-    Dandi: [{ id: "c2", level: 1, rank: 0, currentHp: computeStats(CARDS.Dandi.baseStats, 1).HP }],
-    Cat: [{ id: "c3", level: 1, rank: 0, currentHp: computeStats(CARDS.Cat.baseStats, 1).HP }, { id: "c4", level: 1, rank: 0, currentHp: computeStats(CARDS.Cat.baseStats, 1).HP }],
-    Brig: [{ id: "c5", level: 1, rank: 0, currentHp: computeStats(CARDS.Brig.baseStats, 1).HP }]
-  };
   return {
     wallet: 1000,
-    cards: { Man: 1, Dandi: 1, Cat: 2, Brig: 1 },
-    cardInstances: base,
-    nextCardUid: 6,
+    cards: {},
+    cardInstances: {},
+    nextCardUid: 1,
     lastFreePackDate: null,
     map: { id: "Cave1-1", x: 5, y: 6 },
     facing: "down",
     cardLevels: {},
     cardRanks: {},
     cardDamageTypes: {},
-    teamSlots: ["c1", null, "c2", "c3", "c5", "c4"],
+    teamSlots: [null, null, null, null, null, null],
     defeatedEnemies: {},
     clearedNpcs: {},
     galladonJoined: false,
@@ -1385,6 +1379,10 @@ function interactWithNearbyNpc() {
 }
 
 function startEncounterBattle(enemy) {
+  if (!buildPlayerBattleTeam().some(Boolean)) {
+    showDialogue(["你当前没有可战斗的队伍单位，请先在 Team 里编队。"]);
+    return;
+  }
   inEncounterBattle = true;
   document.getElementById("worldSection")?.classList.add("hidden");
   document.getElementById("worldStatus")?.classList.add("hidden");
