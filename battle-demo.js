@@ -74,37 +74,12 @@ const STARTING_FORMATION = {
   enemy: ["Man", null, "Man", "Cat", "Brig", "Cat"]
 };
 
-const SIM1_FORMATION = {
-  player: ["Shiking", "Kog", "Khip", "Spiritue", "Sharkuna", "Gosple"],
-  enemy: ["Sheldor", "Kog", "Shiking", "Sharkuna", "Gosple", "Mao"]
-};
-
-const SIM1_ATTACK_TYPES = {
-  player: [
-    { PO: "Plant", MO: "Rock" },
-    { PO: "Ground", MO: "Water" },
-    { PO: "Plant", MO: "Water" },
-    { PO: "Phantom", MO: "Phantom" },
-    { PO: "Water", MO: "Water" },
-    { PO: "Bug", MO: "Bug" }
-  ],
-  enemy: [
-    { PO: "Ground", MO: "Rock" },
-    { PO: "Water", MO: "Ground" },
-    { PO: "Plant", MO: "Rock" },
-    { PO: "Water", MO: "Water" },
-    { PO: "Bug", MO: "Bug" },
-    { PO: "Normal", MO: "Normal" }
-  ]
-};
-
 const SPECIAL_SKILLS = new Set(["Khip", "Sheldon", "Progenlion", "The Thing", "A Certain Creation - The Eye"]);
 const BASIC_PO_POWER = 0;
 const BASIC_MO_POWER = 0;
 
 const MAX_LEVEL = 50;
 const DEFAULT_BATTLE_LEVEL = 10;
-const SIM_BATTLE_LEVEL = 20;
 let state = {};
 
 const playerGrid = document.getElementById("playerGrid");
@@ -112,6 +87,78 @@ const enemyGrid = document.getElementById("enemyGrid");
 const logEl = document.getElementById("log");
 const phaseText = document.getElementById("phaseText");
 const roundText = document.getElementById("roundText");
+let passiveParticleLoop = null;
+const SAVE_KEY = "tbc_demo_profile_v1";
+const PACKS = {
+  man_for_you: {
+    name: "Man for You",
+    price: 0,
+    dailyFree: true,
+    open(profile) {
+      const rewards = [{ kind: "gold", amount: 10 }, { kind: "gold", amount: 10 }];
+      rewards.push(Math.random() < 0.5 ? { kind: "gold", amount: 20 } : { kind: "card", name: "Man", amount: 1 });
+      rewards.push({ kind: "card", name: "Man", amount: 1 });
+      return rewards;
+    }
+  },
+  planes_1: {
+    name: "The Planes 1",
+    price: 500,
+    dailyFree: false,
+    open(profile) {
+      return [
+        rollReward([{ card: "Man", p: 25 }, { card: "Brig", p: 25 }, { card: "Cat", p: 25 }, { card: "Shizi", p: 20 }, { card: "Kog", p: 5 }]),
+        rollReward([{ card: "Man", p: 25 }, { card: "Brig", p: 25 }, { card: "Cat", p: 25 }, { card: "Shizi", p: 20 }, { card: "Kog", p: 5 }]),
+        rollReward([{ card: "Man", p: 10 }, { card: "Brig", p: 15 }, { card: "Cat", p: 15 }, { card: "Shizi", p: 15 }, { card: "Kog", p: 15 }, { card: "Dandi", p: 15 }, { card: "Wit", p: 15 }]),
+        rollReward([{ card: "Man", p: 5 }, { card: "Brig", p: 15 }, { card: "Cat", p: 15 }, { card: "Shizi", p: 15 }, { card: "Kog", p: 15 }, { card: "Dandi", p: 15 }, { card: "Wit", p: 15 }, { card: "Spiritue", p: 5 }]),
+      ];
+    }
+  }
+};
+const PACK_ORDER = ["man_for_you", "planes_1"];
+const MAPS = {
+  "Cave1-1": {
+    width: 15, height: 11, spawn: { x: 5, y: 6 },
+    exits: [{ x: 15, y: 6, to: "Cave1-2", spawn: { x: 1, y: 6 } }],
+    walls: [],
+    enemies: [],
+    npcs: []
+  },
+  "Cave1-2": {
+    width: 15, height: 11, spawn: { x: 6, y: 1 },
+    exits: [
+      { x: 1, y: 6, to: "Cave1-1", spawn: { x: 15, y: 6 } },
+      { x: 15, y: 6, to: "Cave1-3", spawn: { x: 1, y: 6 }, requiresGalladon: true }
+    ],
+    walls: [{ x1: 7, y1: 5, x2: 9, y2: 7 }],
+    enemies: [],
+    npcs: [{ id: "galladon", x: 12, y: 6 }, { id: "dew", x: 14, y: 2 }]
+  },
+  "Cave1-3": {
+    width: 10, height: 28, spawn: { x: 6, y: 1 },
+    exits: [
+      { x: 1, y: 6, to: "Cave1-2", spawn: { x: 15, y: 6 } },
+      { x: 10, y: 28, to: null, spawn: null }
+    ],
+    walls: [],
+    enemies: [
+      { id: "m1", x: 4, y: 13 },
+      { id: "m2", x: 7, y: 17 },
+      { id: "m3", x: 3, y: 20 },
+      { id: "m4", x: 8, y: 24 }
+    ],
+    npcs: []
+  }
+};
+
+let profile = loadProfile();
+normalizeCardCounts();
+let selectedPackId = "man_for_you";
+let openingState = null;
+let inEncounterBattle = false;
+let gameEntered = false;
+let dialogueQueue = [];
+let activeEncounter = null;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -121,6 +168,110 @@ function scaleStat(baseValue, level, kind) {
   if (kind === "Def" || kind === "MR") return Math.round(baseValue * (1 + 0.045 * n));
   if (kind === "Spd") return Math.round(baseValue * (1 + 0.02 * n));
   return baseValue;
+}
+
+function rollReward(weightedCards) {
+  const roll = Math.random() * 100;
+  let acc = 0;
+  for (const entry of weightedCards) {
+    acc += entry.p;
+    if (roll <= acc) return { kind: "card", name: entry.card, amount: 1 };
+  }
+  const fallback = weightedCards[weightedCards.length - 1];
+  return { kind: "card", name: fallback.card, amount: 1 };
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function defaultProfile() {
+  return {
+    wallet: 1000,
+    cards: {},
+    cardInstances: {},
+    nextCardUid: 1,
+    lastFreePackDate: null,
+    map: { id: "Cave1-1", x: 5, y: 6 },
+    facing: "down",
+    cardLevels: {},
+    cardRanks: {},
+    cardDamageTypes: {},
+    teamSlots: [null, null, null, null, null, null],
+    defeatedEnemies: {},
+    clearedNpcs: {},
+    galladonJoined: false,
+    lastSave: null,
+    enemyState: {}
+  };
+}
+
+function loadProfile() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return defaultProfile();
+    const parsed = JSON.parse(raw);
+    const loaded = {
+      wallet: Number.isFinite(parsed.wallet) ? parsed.wallet : 1000,
+      cards: parsed.cards || {},
+      cardInstances: parsed.cardInstances || {},
+      nextCardUid: Number.isFinite(parsed.nextCardUid) ? parsed.nextCardUid : 1,
+      lastFreePackDate: parsed.lastFreePackDate || null,
+      map: parsed.map || { id: "Cave1-1", x: 5, y: 6 },
+      facing: parsed.facing || "down",
+      cardLevels: parsed.cardLevels || {},
+      cardRanks: parsed.cardRanks || {},
+      cardDamageTypes: parsed.cardDamageTypes || {},
+      teamSlots: Array.isArray(parsed.teamSlots) && parsed.teamSlots.length === 6 ? parsed.teamSlots : [null, null, null, null, null, null],
+      defeatedEnemies: parsed.defeatedEnemies || {},
+      clearedNpcs: parsed.clearedNpcs || {},
+      galladonJoined: !!parsed.galladonJoined,
+      lastSave: parsed.lastSave || null,
+      enemyState: parsed.enemyState || {}
+    };
+    migrateCardInventory(loaded);
+    return loaded;
+  } catch {
+    return defaultProfile();
+  }
+}
+
+function migrateCardInventory(target) {
+  if (!target.cardInstances || !Object.keys(target.cardInstances).length) {
+    target.cardInstances = {};
+    target.nextCardUid = Math.max(1, Number(target.nextCardUid) || 1);
+    Object.entries(target.cards || {}).forEach(([cardName, qty]) => {
+      for (let i = 0; i < qty; i += 1) addCardInstance(cardName, { profileRef: target });
+    });
+  }
+  normalizeCardCounts(target);
+  if (Array.isArray(target.teamSlots)) {
+    const used = new Set();
+    target.teamSlots = target.teamSlots.map(slot => {
+      if (!slot) return null;
+      if (String(slot).startsWith("c")) {
+        used.add(slot);
+        return slot;
+      }
+      const list = target.cardInstances[slot] || [];
+      const pick = list.find(inst => !used.has(inst.id));
+      if (!pick) return null;
+      used.add(pick.id);
+      return pick.id;
+    });
+  }
+}
+
+function normalizeCardCounts(target = profile) {
+  const counts = {};
+  Object.entries(target.cardInstances || {}).forEach(([cardName, arr]) => {
+    counts[cardName] = (arr || []).length;
+  });
+  target.cards = counts;
+}
+
+function saveProfile() {
+  localStorage.setItem(SAVE_KEY, JSON.stringify(profile));
 }
 
 function computeStats(baseStats, level) {
@@ -166,43 +317,76 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
     },
     hp: stats.HP,
     alive: true,
+    tempBuffs: [],
+    persistentPassiveFx: new Set(),
+    passiveAuraColors: new Set(),
     team,
     slot,
     level: unitLevel
   };
 }
 
-function initBattle(mode = "demo") {
-  const isSimulation = mode === "sim1";
-  const formation = isSimulation ? SIM1_FORMATION : STARTING_FORMATION;
-  const level = isSimulation ? SIM_BATTLE_LEVEL : DEFAULT_BATTLE_LEVEL;
+function buildPlayerBattleTeam() {
+  const validIds = new Set(allCardInstances().map(x => x.id));
+  profile.teamSlots = (profile.teamSlots || [null, null, null, null, null, null]).map(id => (id && validIds.has(id) ? id : null));
+  return (profile.teamSlots || [null, null, null, null, null, null]).map((instanceId, i) => {
+    if (!instanceId) return null;
+    const inst = findCardInstanceById(instanceId);
+    if (!inst) return null;
+    const typeCfg = profile.cardDamageTypes?.[instanceId];
+    const unit = cloneUnit(inst.cardName, "player", i, inst.level || 1, {
+      PO: typeCfg?.po,
+      MO: typeCfg?.mo
+    });
+    const hpFromSave = Number(inst.currentHp);
+    if (Number.isFinite(hpFromSave) && hpFromSave <= 0) return null;
+    unit.hp = Math.max(1, Math.min(unit.stats.HP, Number.isFinite(hpFromSave) ? hpFromSave : unit.stats.HP));
+    unit.instanceId = instanceId;
+    return unit;
+  });
+}
 
+function initBattle(mode = "demo", options = {}) {
+  const formation = options.formation || STARTING_FORMATION;
+  const level = options.level || DEFAULT_BATTLE_LEVEL;
+  const enemyLevel = options.enemyLevel || level;
   state = {
     mode,
     round: 1,
+    step: 1,
     phase: "player-select",
     selected: null,
     selectedAction: "PO",
     activeTeam: "player",
-    manualBothSides: isSimulation,
+    manualBothSides: false,
     resources: {
       player: { sp: 0, skillPoints: 0 },
       enemy: { sp: 0, skillPoints: 0 }
     },
-    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, isSimulation ? SIM1_ATTACK_TYPES.player[i] : null)),
-    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, isSimulation ? SIM1_ATTACK_TYPES.enemy[i] : null)),
+    player: mode === "encounter" ? buildPlayerBattleTeam() : formation.player.map((c, i) => cloneUnit(c, "player", i, level, null)),
+    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, enemyLevel, null)),
     pending: { player: null, enemy: null },
+    plannedActions: { player: [], enemy: [] },
+    actedThisRound: { player: new Set(), enemy: new Set() },
+    roundStepLimit: 3,
     ended: false
   };
 
   logEl.innerHTML = "";
-  if (isSimulation) addLog("模拟战斗1 已启动：全员Lv20，双方全手动并按顺序选择PO/MO/Skill。");
-  else addLog("Battle started. Default demo mode (player vs AI).");
+  addLog(mode === "encounter" ? "遭遇战开始。" : "Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
+  state.roundStepLimit = computeRoundStepLimit();
   render();
+  ensurePassiveParticleLoop();
 }
 
 function getUnit(team, idx) { return state[team][idx]; }
+
+function computeRoundStepLimit() {
+  const playerAlive = state.player.filter(u => u?.alive).length;
+  const enemyAlive = state.enemy.filter(u => u?.alive).length;
+  return Math.max(1, Math.min(3, playerAlive, enemyAlive));
+}
 
 function frontLineIndex(team, col) {
   const front = state[team][col];
@@ -290,15 +474,161 @@ function getUnitCardElement(unitId) {
   return document.querySelector(`[data-unit-id="${unitId}"]`);
 }
 
-function spawnParticles(targetEl, colorClass) {
+function syncUnitCardMetrics(unit) {
+  if (!unit) return;
+  const card = getUnitCardElement(unit.id);
+  if (!card) return;
+  const hpPct = Math.max(0, Math.round((unit.hp / Math.max(1, unit.stats.HP)) * 100));
+  const hpFill = card.querySelector(".hpfill");
+  if (hpFill) hpFill.style.width = `${hpPct}%`;
+  const statLine = card.querySelector(".stat-line");
+  if (statLine) {
+    statLine.textContent = `HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}`;
+  }
+  if (!unit.alive) card.classList.add("dead");
+}
+
+function spawnParticles(targetEl, colorClassOrHex, count = 4) {
   if (!targetEl) return;
-  for (let i = 0; i < 4; i += 1) {
+  const isHexColor = typeof colorClassOrHex === "string" && colorClassOrHex.startsWith("#");
+  for (let i = 0; i < count; i += 1) {
     const particle = document.createElement("span");
-    particle.className = `passive-particle ${colorClass}`;
+    particle.className = "passive-particle";
+    if (isHexColor) particle.style.background = colorClassOrHex;
+    else particle.classList.add(colorClassOrHex);
     particle.style.left = `${20 + Math.random() * 60}%`;
     targetEl.appendChild(particle);
     setTimeout(() => particle.remove(), 700);
   }
+}
+
+function applyPassiveFx(unit, cssClass, colorClass, persistent = false) {
+  if (!unit) return;
+  const el = getUnitCardElement(unit.id);
+  if (persistent) {
+    unit.persistentPassiveFx?.add(cssClass);
+    if (colorClass?.startsWith?.("#")) unit.passiveAuraColors?.add(colorClass);
+    if (colorClass === "red") unit.passiveAuraColors?.add("#ff5a5a");
+    if (colorClass === "gray") unit.passiveAuraColors?.add("#d9d9d9");
+    if (colorClass === "green") unit.passiveAuraColors?.add("#69f28f");
+    syncUnitPassiveAura(unit, el);
+  }
+  if (!el) return;
+  el.classList.add(cssClass);
+  spawnParticles(el, colorClass);
+  if (!persistent) setTimeout(() => el.classList.remove(cssClass), 650);
+}
+
+function removePassiveFx(unit, cssClass, colorClass) {
+  if (!unit) return;
+  if (cssClass) unit.persistentPassiveFx?.delete(cssClass);
+  if (colorClass?.startsWith?.("#")) unit.passiveAuraColors?.delete(colorClass);
+  if (colorClass === "red") unit.passiveAuraColors?.delete("#ff5a5a");
+  if (colorClass === "gray") unit.passiveAuraColors?.delete("#d9d9d9");
+  if (colorClass === "green") unit.passiveAuraColors?.delete("#69f28f");
+  syncUnitPassiveAura(unit);
+}
+
+function clearPassiveFx(unit) {
+  if (!unit?.persistentPassiveFx) return;
+  unit.persistentPassiveFx.clear();
+  unit.passiveAuraColors?.clear();
+  syncUnitPassiveAura(unit);
+}
+
+function addTemporaryBuff(unit, stat, amount, source, fxClass = null, fxColor = null) {
+  if (!unit?.alive || !amount) return;
+  unit.stats[stat] = Math.max(0, unit.stats[stat] + amount);
+  unit.tempBuffs.push({ stat, amount, source, expiresRound: state.round, fxClass, fxColor });
+  if (fxClass || fxColor) applyPassiveFx(unit, fxClass, fxColor, true);
+}
+
+function expireRoundBuffs() {
+  getAllUnits().forEach(unit => {
+    if (!unit?.tempBuffs?.length) return;
+    const remaining = [];
+    unit.tempBuffs.forEach(buff => {
+      if (buff.expiresRound <= state.round) {
+        unit.stats[buff.stat] = Math.max(0, unit.stats[buff.stat] - buff.amount);
+        if (buff.fxClass || buff.fxColor) removePassiveFx(unit, buff.fxClass, buff.fxColor);
+        addLog(`Buff Ended: ${buff.source} on ${unit.name}.`);
+      } else {
+        remaining.push(buff);
+      }
+    });
+    unit.tempBuffs = remaining;
+  });
+}
+
+function canActThisRound(team, unit) {
+  const aliveCount = state[team].filter(u => u?.alive).length;
+  if (aliveCount <= 1) return true;
+  return !state.actedThisRound[team].has(unit.id);
+}
+
+function registerRoundAction(team, unit) {
+  const aliveCount = state[team].filter(u => u?.alive).length;
+  if (aliveCount <= 1) return;
+  state.actedThisRound[team].add(unit.id);
+}
+
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const value = Number.parseInt(clean, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255
+  };
+}
+
+function resolvePassiveAura(unit) {
+  const colors = [...(unit?.passiveAuraColors || [])];
+  if (!colors.length) return { rgb: "255,255,255", alpha: "0", hex: "#ffffff" };
+  const mixed = colors.reduce((acc, color) => {
+    const rgb = hexToRgb(color);
+    return { r: acc.r + rgb.r, g: acc.g + rgb.g, b: acc.b + rgb.b };
+  }, { r: 0, g: 0, b: 0 });
+  const count = colors.length;
+  const avg = {
+    r: Math.round(mixed.r / count),
+    g: Math.round(mixed.g / count),
+    b: Math.round(mixed.b / count)
+  };
+  const alpha = Math.min(0.42, 0.26 + (count - 1) * 0.06);
+  const hex = `#${avg.r.toString(16).padStart(2, "0")}${avg.g.toString(16).padStart(2, "0")}${avg.b.toString(16).padStart(2, "0")}`;
+  return { rgb: `${avg.r},${avg.g},${avg.b}`, alpha: `${alpha}`, hex };
+}
+
+function syncUnitPassiveAura(unit, targetEl = null) {
+  if (!unit) return;
+  const el = targetEl || getUnitCardElement(unit.id);
+  if (!el) return;
+  const aura = resolvePassiveAura(unit);
+  el.style.setProperty("--passive-aura-rgb", aura.rgb);
+  el.style.setProperty("--passive-aura-alpha", aura.alpha);
+  el.style.setProperty("--passive-aura-color", aura.hex);
+}
+
+function getAllUnits() {
+  return [...(state.player || []), ...(state.enemy || [])].filter(Boolean);
+}
+
+function tickPassiveParticles() {
+  getAllUnits().forEach(unit => {
+    if (!unit.alive) return;
+    const aura = resolvePassiveAura(unit);
+    if (Number.parseFloat(aura.alpha) <= 0) return;
+    const el = getUnitCardElement(unit.id);
+    if (!el) return;
+    spawnParticles(el, aura.hex, 8);
+  });
+}
+
+function ensurePassiveParticleLoop() {
+  if (passiveParticleLoop) return;
+  tickPassiveParticles();
+  passiveParticleLoop = setInterval(tickPassiveParticles, 1200);
 }
 
 
@@ -310,6 +640,7 @@ function healUnit(unit, amount, reason) {
   const actual = unit.hp - before;
   if (actual <= 0) return;
   addLog(`Heal: ${unit.name} +${actual} HP (${reason}).`);
+  syncUnitCardMetrics(unit);
   const el = getUnitCardElement(unit.id);
   if (el) {
     el.classList.add("passive-heal");
@@ -360,35 +691,19 @@ async function playAttackAnimation(attacker, defender, action) {
 }
 
 function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
-  const attackerEl = getUnitCardElement(attacker.id);
-
   if (attacker.ability?.includes("Engine") && damage > 0) {
     attacker.stats.Spd = Math.max(1, Math.round(attacker.stats.Spd * 1.1));
     addLog(`Passive Triggered: Engine on ${attacker.name} (+10% Spd).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    applyPassiveFx(attacker, "passive-engine", "gray", true);
   }
   if (attacker.ability?.includes("Fear") && Math.random() < 0.25) {
-    attacker.stats.Spd += 5;
-    addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd this battle).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    addTemporaryBuff(attacker, "Spd", 5, "Fear", "passive-fear", "#b388ff");
+    addLog(`Passive Triggered: Fear on ${attacker.name} (+5 Spd until round end).`);
   }
 
   if (attacker.ability?.includes("Harden") && Math.random() < 0.25) {
-    attacker.stats.Def += 5;
-    addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def this battle).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-engine");
-      spawnParticles(attackerEl, "gray");
-      setTimeout(() => attackerEl.classList.remove("passive-engine"), 650);
-    }
+    addTemporaryBuff(attacker, "Def", 5, "Harden", "passive-harden", "#7dd3fc");
+    addLog(`Passive Triggered: Harden on ${attacker.name} (+5 Def until round end).`);
   }
 
   if (attacker.ability?.includes("Absorb") && damage > 0) healUnit(attacker, Math.max(1, damage * 0.1), "Absorb");
@@ -397,19 +712,11 @@ function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
   if (defeatedTarget && attacker.ability?.includes("Bloodthirst+")) {
     attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.2));
     addLog(`Passive Triggered: Bloodthirst+ on ${attacker.name} (+20% PO).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-bloodthirst");
-      spawnParticles(attackerEl, "red");
-      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
-    }
+    applyPassiveFx(attacker, "passive-bloodthirst", "red", true);
   } else if (defeatedTarget && attacker.ability?.includes("Bloodthirst")) {
     attacker.stats.PO = Math.max(1, Math.round(attacker.stats.PO * 1.1));
     addLog(`Passive Triggered: Bloodthirst on ${attacker.name} (+10% PO).`);
-    if (attackerEl) {
-      attackerEl.classList.add("passive-bloodthirst");
-      spawnParticles(attackerEl, "red");
-      setTimeout(() => attackerEl.classList.remove("passive-bloodthirst"), 650);
-    }
+    applyPassiveFx(attacker, "passive-bloodthirst", "red", true);
   }
 
   if (defeatedTarget && attacker.ability?.includes("Our Tides")) {
@@ -427,7 +734,10 @@ function triggerPassives(attacker, defender, damage, defeatedTarget, action) {
     const reflect = Math.max(1, Math.round(damage * 0.05));
     attacker.hp = Math.max(0, attacker.hp - reflect);
     addLog(`Passive Triggered: Thorns reflects ${reflect} to ${attacker.name}.`);
-    if (attacker.hp <= 0) attacker.alive = false;
+    if (attacker.hp <= 0) {
+      attacker.alive = false;
+      clearPassiveFx(attacker);
+    }
   }
 
   if (defender.ability?.includes("Resilience") && damage > 0) {
@@ -493,15 +803,20 @@ function computeFinalDamage(attacker, defender, action) {
 function dealDamage(attacker, defender, action) {
   const dmg = computeFinalDamage(attacker, defender, action);
   defender.hp = Math.max(0, defender.hp - dmg);
-  if (defender.hp <= 0) defender.alive = false;
+  if (defender.hp <= 0) {
+    defender.alive = false;
+    clearPassiveFx(defender);
+  }
   addLog(`${attacker.team.toUpperCase()} ${attacker.name} ${action.kind}(${action.attackType}) -> ${defender.name} for ${dmg}.`);
   if (!defender.alive) addLog(`${defender.team.toUpperCase()} ${defender.name} is defeated.`);
   triggerPassives(attacker, defender, dmg, !defender.alive, action);
+  syncUnitCardMetrics(attacker);
+  syncUnitCardMetrics(defender);
 }
 
 
 function chooseBestEnemyAction() {
-  const enemyCandidates = state.enemy.filter(u => u?.alive);
+  const enemyCandidates = state.enemy.filter(u => u?.alive && canActThisRound("enemy", u));
   let best = null;
   enemyCandidates.forEach(attacker => {
     const action = actionToDamageModel(attacker, "PO");
@@ -540,7 +855,7 @@ async function resolveRound() {
   state.phase = "resolving";
   render();
 
-  const actions = [state.pending.player, state.pending.enemy].filter(Boolean).map(action => {
+  const actions = [...state.plannedActions.player, ...state.plannedActions.enemy].filter(Boolean).map(action => {
     const attacker = getUnitById(action.team, action.attackerId);
     if (!attacker?.alive) return null;
     const model = actionToDamageModel(attacker, action.actionMode);
@@ -557,24 +872,60 @@ async function resolveRound() {
         state.resources[action.team].skillPoints -= 1;
         await playAttackAnimation(action.attacker, action.defender, action.model);
         dealDamage(action.attacker, action.defender, action.model);
+        await sleep(500);
       }
     } else {
       await playAttackAnimation(action.attacker, action.defender, action.model);
       dealDamage(action.attacker, action.defender, action.model);
+      await sleep(500);
     }
   }
 
   checkBattleEnd();
   if (!state.ended) {
+    expireRoundBuffs();
     grantRoundResources();
     state.round += 1;
+    state.step = 1;
+    state.actedThisRound.player.clear();
+    state.actedThisRound.enemy.clear();
+    state.roundStepLimit = computeRoundStepLimit();
+  }
+  state.pending.player = null;
+  state.pending.enemy = null;
+  state.plannedActions.player = [];
+  state.plannedActions.enemy = [];
+  state.selected = null;
+  state.selectedAction = "PO";
+  state.activeTeam = "player";
+  state.phase = state.ended ? "ended" : "player-select";
+  render();
+}
+
+function lockCurrentStepAndContinue() {
+  if (state.pending.player) {
+    const playerUnit = getUnitById("player", state.pending.player.attackerId);
+    if (playerUnit) registerRoundAction("player", playerUnit);
+    state.plannedActions.player.push(state.pending.player);
+  }
+  if (state.pending.enemy) {
+    const enemyUnit = getUnitById("enemy", state.pending.enemy.attackerId);
+    if (enemyUnit) registerRoundAction("enemy", enemyUnit);
+    state.plannedActions.enemy.push(state.pending.enemy);
   }
   state.pending.player = null;
   state.pending.enemy = null;
   state.selected = null;
   state.selectedAction = "PO";
-  state.activeTeam = "player";
-  state.phase = state.ended ? "ended" : "player-select";
+
+  if (state.step >= state.roundStepLimit) {
+    addLog(`${state.roundStepLimit}步行动已锁定，开始按速度统一结算。`);
+    setTimeout(resolveRound, 250);
+    return;
+  }
+
+  state.step += 1;
+  addLog(`Step ${state.step}/${state.roundStepLimit} 开始选择行动。`);
   render();
 }
 
@@ -584,7 +935,7 @@ function commitTeamAction(team, attacker, targetIdx, actionMode) {
 
   if (!state.manualBothSides) {
     state.pending.enemy = chooseBestEnemyAction();
-    setTimeout(resolveRound, 250);
+    lockCurrentStepAndContinue();
     return;
   }
 
@@ -594,7 +945,7 @@ function commitTeamAction(team, attacker, targetIdx, actionMode) {
 
   if (state.pending.player && state.pending.enemy) {
     addLog("双方行动已选定，按速度结算。");
-    setTimeout(resolveRound, 250);
+    lockCurrentStepAndContinue();
   } else {
     addLog(`${team === "player" ? "Player 1" : "Player 2"} 已锁定行动，等待对方。`);
     render();
@@ -608,6 +959,10 @@ function onSlotClick(team, idx) {
   const selectingTeam = state.manualBothSides ? state.activeTeam : "player";
   if (!state.selected) {
     if (team !== selectingTeam || !unit?.alive) return;
+    if (!canActThisRound(selectingTeam, unit)) {
+      addLog(`${unit.name} already acted this round (max 1 action per round).`);
+      return;
+    }
     state.selected = { team, id: unit.id };
     render();
     return;
@@ -622,6 +977,10 @@ function onSlotClick(team, idx) {
 
   if (team === selectingTeam) {
     if (!unit?.alive) return;
+    if (!canActThisRound(selectingTeam, unit)) {
+      addLog(`${unit.name} already acted this round (max 1 action per round).`);
+      return;
+    }
     state.selected = { team, id: unit.id };
     render();
     return;
@@ -649,7 +1008,36 @@ function checkBattleEnd() {
     state.ended = true;
     state.phase = "ended";
     addLog(enemyAlive ? "Player 2 wins." : "Player 1 wins.");
+    if (state.mode === "encounter") finalizeEncounterBattle(!enemyAlive);
   }
+}
+
+function syncTeamHpFromBattle() {
+  (state.player || []).forEach(unit => {
+    if (!unit?.instanceId) return;
+    const found = findCardInstanceById(unit.instanceId);
+    if (!found) return;
+    const list = profile.cardInstances[found.cardName] || [];
+    const ref = list.find(x => x.id === unit.instanceId);
+    if (!ref) return;
+    ref.currentHp = Math.max(1, Math.min(unit.stats.HP, unit.hp));
+  });
+  normalizeCardCounts();
+}
+
+function finalizeEncounterBattle(playerWon) {
+  syncTeamHpFromBattle();
+  if (playerWon && activeEncounter) {
+    profile.defeatedEnemies[`${activeEncounter.mapId}:${activeEncounter.enemyId}`] = true;
+    profile.wallet += 10;
+    addLog("遭遇战胜利，获得 10G。");
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
+  setTimeout(() => {
+    if (inEncounterBattle && state.mode === "encounter" && state.ended) returnToMapFromBattle();
+  }, 450);
 }
 
 function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = "PO") {
@@ -666,14 +1054,16 @@ function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = 
         ${showSkill ? `<button class="card-action ${actionMode === "SKILL" ? "active" : ""}" data-action="SKILL">Skill</button>` : ""}
       </div>`
     : "";
-  return `<div class="slot ${cls} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}">
+  const persistentFxClasses = [...(unit.persistentPassiveFx || [])].join(" ");
+  const aura = resolvePassiveAura(unit);
+  return `<div class="slot ${cls} ${persistentFxClasses} ${unit.alive ? "" : "dead"} ${isSelected ? "selected-card" : ""}" data-unit-id="${unit.id}" style="--passive-aura-rgb:${aura.rgb};--passive-aura-alpha:${aura.alpha};--passive-aura-color:${aura.hex};">
       <div class="sp-vertical"><div class="sp-fill" style="height:${spPct}%"></div></div>
       <div class="rowtag">${rowTag}</div>
       <div class="name">${unit.name} (Lv.${unit.level})</div>
       <div class="face">${face}</div>
       <small>${unit.ability} | PO:${unit.attackTypes.PO} MO:${unit.attackTypes.MO}</small>
       <div class="hpbar"><div class="hpfill" style="width:${hpPct}%"></div></div>
-      <small>HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
+      <small class="stat-line">HP ${unit.hp}/${unit.stats.HP} | PO ${unit.stats.PO} | MO ${unit.stats.MO} | DEF ${unit.stats.Def} | MR ${unit.stats.MR} | SPD ${unit.stats.Spd}</small>
       <small>SP ${res.sp}/100 | Skill ${res.skillPoints}</small>
       ${actionMenu}
     </div>`;
@@ -726,13 +1116,12 @@ function renderGrid(teamName, rootEl) {
 function render() {
   renderGrid("enemy", enemyGrid);
   renderGrid("player", playerGrid);
+  ensurePassiveParticleLoop();
 
-  const modeText = state.manualBothSides
-    ? `模拟战斗1：${state.activeTeam === "player" ? "Player 1" : "Player 2"} 选择 ${state.selectedAction}`
-    : (state.phase === "resolving" ? "Resolving by Speed" : "Choose Action");
+  const modeText = state.phase === "resolving" ? "Resolving by Speed" : "Choose Action";
 
   phaseText.textContent = state.phase === "ended" ? "Battle Ended" : modeText;
-  roundText.textContent = `Round ${state.round} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
+  roundText.textContent = `Round ${state.round} Step ${state.step}/${state.roundStepLimit} | P1 SP ${state.resources.player.sp}/${state.resources.player.skillPoints} | P2 SP ${state.resources.enemy.sp}/${state.resources.enemy.skillPoints}`;
 
   document.getElementById("endTurnBtn").disabled = state.phase !== "player-select" || state.ended || state.manualBothSides;
 }
@@ -743,6 +1132,603 @@ function addLog(text) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+function renderPackModal() {
+  document.getElementById("walletValue").textContent = profile.wallet;
+  const pack = PACKS[selectedPackId];
+  document.getElementById("packNameLabel").textContent = pack.name;
+  document.getElementById("packPriceLabel").textContent = pack.dailyFree ? "Daily Free Pack" : `${pack.price}G`;
+  renderWalletBadge();
+}
+
+function selectPackByDelta(delta) {
+  const idx = PACK_ORDER.indexOf(selectedPackId);
+  const next = (idx + delta + PACK_ORDER.length) % PACK_ORDER.length;
+  selectedPackId = PACK_ORDER[next];
+  renderPackModal();
+}
+
+function renderWalletBadge() {
+  const el = document.getElementById("walletBadgeValue");
+  if (el) el.textContent = profile.wallet;
+}
+
+function isWall(map, x, y) {
+  return map.walls.some(w => x >= w.x1 && x <= w.x2 && y >= w.y1 && y <= w.y2);
+}
+
+function enemyAtPosition(mapId, x, y) {
+  const enemies = getActiveEnemies(mapId);
+  return enemies.find(enemy => enemy.x === x && enemy.y === y);
+}
+
+function getActiveNpcs(mapId) {
+  const map = MAPS[mapId];
+  return (map.npcs || []).filter(npc => !profile.clearedNpcs?.[`${mapId}:${npc.id}`]);
+}
+
+function getActiveEnemies(mapId) {
+  initEnemyState(mapId);
+  const map = MAPS[mapId];
+  return map.enemies
+    .map(base => {
+      const pos = profile.enemyState[mapId]?.[base.id];
+      return { ...base, x: pos?.x ?? base.x, y: pos?.y ?? base.y };
+    })
+    .filter(enemy => !profile.defeatedEnemies[`${mapId}:${enemy.id}`]);
+}
+
+function initEnemyState(mapId) {
+  if (!profile.enemyState[mapId]) profile.enemyState[mapId] = {};
+  MAPS[mapId].enemies.forEach(enemy => {
+    if (!profile.enemyState[mapId][enemy.id]) profile.enemyState[mapId][enemy.id] = { x: enemy.x, y: enemy.y };
+  });
+}
+
+function moveEnemiesRandom(mapId) {
+  if (mapId !== "Cave1-3") return;
+  const map = MAPS[mapId];
+  const occupied = new Set();
+  getActiveEnemies(mapId).forEach(enemy => occupied.add(`${enemy.x},${enemy.y}`));
+  getActiveEnemies(mapId).forEach(enemy => {
+    const dirs = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+    const pick = dirs[Math.floor(Math.random() * dirs.length)];
+    const nx = Math.max(1, Math.min(map.width, enemy.x + pick.x));
+    const ny = Math.max(1, Math.min(map.height, enemy.y + pick.y));
+    const key = `${nx},${ny}`;
+    if (isWall(map, nx, ny)) return;
+    if (getActiveNpcs(mapId).some(n => n.x === nx && n.y === ny)) return;
+    if (occupied.has(key) && key !== `${enemy.x},${enemy.y}`) return;
+    occupied.delete(`${enemy.x},${enemy.y}`);
+    occupied.add(key);
+    profile.enemyState[mapId][enemy.id] = { x: nx, y: ny };
+  });
+}
+
+function renderMap() {
+  const minimap = document.getElementById("minimap");
+  const info = document.getElementById("mapInfo");
+  if (!minimap || !info) return;
+  minimap.innerHTML = "";
+  const map = MAPS[profile.map.id];
+  const { viewW, viewH, startX, startY } = getMapViewport(map);
+  for (let y = startY; y < startY + viewH; y += 1) {
+    for (let x = startX; x < startX + viewW; x += 1) {
+      const cell = document.createElement("div");
+      cell.className = "mini-cell";
+      if (x > map.width || y > map.height) {
+        cell.classList.add("wall");
+      } else {
+        if (isWall(map, x, y)) cell.classList.add("wall");
+        if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
+        if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
+        if (profile.map.x === x && profile.map.y === y) {
+          cell.classList.add("player", `facing-${profile.facing || "down"}`);
+        }
+      }
+      minimap.appendChild(cell);
+    }
+  }
+  const frontNpc = getFrontNpc(map);
+  const interactionHint = frontNpc ? ` | 前方可互动: ${frontNpc.id} (按Z)` : "";
+  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y}) 朝向:${facingLabel(profile.facing)}${interactionHint}`;
+  renderWorldMap();
+  renderSaveSummary();
+}
+
+function renderWorldMap() {
+  const worldMap = document.getElementById("worldMap");
+  if (!worldMap) return;
+  const map = MAPS[profile.map.id];
+  const { viewW, viewH, startX, startY } = getMapViewport(map);
+  worldMap.innerHTML = "";
+  worldMap.style.gridTemplateColumns = `repeat(${viewW}, minmax(22px, 1fr))`;
+  for (let y = startY; y < startY + viewH; y += 1) {
+    for (let x = startX; x < startX + viewW; x += 1) {
+      const cell = document.createElement("div");
+      cell.className = "world-cell";
+      if (x > map.width || y > map.height) {
+        cell.classList.add("wall");
+      } else {
+        if (isWall(map, x, y)) cell.classList.add("wall");
+        if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
+        if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
+        if (getActiveNpcs(profile.map.id).some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
+        if (profile.map.x === x && profile.map.y === y) {
+          cell.classList.add("player", `facing-${profile.facing || "down"}`);
+        }
+      }
+      worldMap.appendChild(cell);
+    }
+  }
+}
+
+function getMapViewport(map) {
+  const viewW = 15;
+  const viewH = 11;
+  const startX = Math.max(1, Math.min(profile.map.x - Math.floor(viewW / 2), map.width - viewW + 1));
+  const startY = Math.max(1, Math.min(profile.map.y - Math.floor(viewH / 2), map.height - viewH + 1));
+  return { viewW, viewH, startX, startY };
+}
+
+function updateFacingByDelta(dx, dy) {
+  if (dx === 1) profile.facing = "right";
+  if (dx === -1) profile.facing = "left";
+  if (dy === 1) profile.facing = "down";
+  if (dy === -1) profile.facing = "up";
+}
+
+function facingLabel(facing) {
+  if (facing === "up") return "↑";
+  if (facing === "down") return "↓";
+  if (facing === "left") return "←";
+  if (facing === "right") return "→";
+  return "↓";
+}
+
+function facingOffset(facing) {
+  if (facing === "up") return { x: 0, y: -1 };
+  if (facing === "down") return { x: 0, y: 1 };
+  if (facing === "left") return { x: -1, y: 0 };
+  if (facing === "right") return { x: 1, y: 0 };
+  return { x: 0, y: 1 };
+}
+
+function getFrontPosition() {
+  const offset = facingOffset(profile.facing);
+  return { x: profile.map.x + offset.x, y: profile.map.y + offset.y };
+}
+
+function getFrontNpc(map) {
+  const front = getFrontPosition();
+  return getActiveNpcs(profile.map.id).find(n => n.x === front.x && n.y === front.y) || null;
+}
+
+function tryMovePlayer(dx, dy) {
+  const map = MAPS[profile.map.id];
+  updateFacingByDelta(dx, dy);
+  const nx = profile.map.x + dx;
+  const ny = profile.map.y + dy;
+  if (nx < 1 || nx > map.width || ny < 1 || ny > map.height) {
+    renderMap();
+    return;
+  }
+  if (isWall(map, nx, ny)) {
+    renderMap();
+    return;
+  }
+  if (getActiveNpcs(profile.map.id).some(n => n.x === nx && n.y === ny)) {
+    renderMap();
+    return;
+  }
+  profile.map.x = nx;
+  profile.map.y = ny;
+  moveEnemiesRandom(profile.map.id);
+  const enemy = enemyAtPosition(profile.map.id, nx, ny);
+  if (enemy) {
+    activeEncounter = { mapId: profile.map.id, enemyId: enemy.id };
+    startEncounterBattle(enemy);
+  }
+  const exit = map.exits.find(e => e.x === nx && e.y === ny);
+  if (exit && exit.to) {
+    if (exit.requiresGalladon && !profile.galladonJoined) {
+      addLog("需要先与 Galladon 互动，才能离开该地图。");
+      saveProfile();
+      renderMap();
+      return;
+    }
+    profile.map.id = exit.to;
+    profile.map.x = exit.spawn.x;
+    profile.map.y = exit.spawn.y;
+    addLog(`进入地图 ${exit.to}。`);
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
+}
+
+function interactWithNearbyNpc() {
+  const map = MAPS[profile.map.id];
+  const npc = getFrontNpc(map);
+  if (npc) {
+    const messages = [];
+    if (npc.id === "galladon") {
+      messages.push("你与 Galladon 对话。");
+      if (!profile.galladonJoined) {
+        profile.galladonJoined = true;
+        const galladonId = addCardInstance("Galladon", { level: 1, currentHp: 1, rank: 0 });
+        if (!profile.teamSlots.includes(galladonId)) {
+          const empty = profile.teamSlots.findIndex(x => !x);
+          if (empty >= 0) profile.teamSlots[empty] = galladonId;
+        }
+        messages.push("*Galladon Has Joined the Party");
+      }
+      profile.clearedNpcs[`${profile.map.id}:${npc.id}`] = true;
+    }
+    if (npc.id === "dew") {
+      messages.push("露水恢复了你的队伍生命。");
+      profile.clearedNpcs[`${profile.map.id}:${npc.id}`] = true;
+    }
+    if (messages.length) showDialogue(messages);
+    saveProfile();
+    renderMap();
+    renderSaveSummary();
+    return;
+  }
+  showDialogue(["你面前没有可互动单位（先调整朝向再按Z）。"]);
+}
+
+function startEncounterBattle(enemy) {
+  if (!buildPlayerBattleTeam().some(Boolean)) {
+    showDialogue(["你当前没有可战斗的队伍单位，请先在 Team 里编队。"]);
+    return;
+  }
+  inEncounterBattle = true;
+  document.getElementById("worldSection")?.classList.add("hidden");
+  document.getElementById("worldStatus")?.classList.add("hidden");
+  document.getElementById("battleSim")?.classList.remove("hidden");
+  document.querySelector(".controls")?.classList.remove("hidden");
+  document.getElementById("battleLogSection")?.classList.remove("hidden");
+  const encounterFormation = {
+    player: [null, null, null, null, null, null],
+    enemy: [null, null, null, null, "Man", null]
+  };
+  initBattle("encounter", { formation: encounterFormation, enemyLevel: 1 });
+}
+
+function returnToMapFromBattle() {
+  if (state.mode === "encounter" && state.ended) activeEncounter = null;
+  inEncounterBattle = false;
+  document.getElementById("battleSim")?.classList.add("hidden");
+  document.querySelector(".controls")?.classList.add("hidden");
+  document.getElementById("worldSection")?.classList.remove("hidden");
+  document.getElementById("worldStatus")?.classList.remove("hidden");
+  renderMap();
+}
+
+function renderSaveSummary() {
+  const el = document.getElementById("saveSummary");
+  if (!el) return;
+  el.textContent = `当前地图: ${profile.map.id} (${profile.map.x}, ${profile.map.y})
+钱包: ${profile.wallet}G
+已拥有卡牌总数: ${Object.values(profile.cards || {}).reduce((s, n) => s + n, 0)}
+已击败地图敌人: ${Object.keys(profile.defeatedEnemies || {}).length}
+Galladon入队: ${profile.galladonJoined ? "是" : "否"}`;
+}
+
+function cardLevel(cardName) {
+  const raw = Number(profile.cardLevels?.[cardName] || 1);
+  return Math.max(1, Math.min(MAX_LEVEL, Math.floor(raw)));
+}
+
+function allCardInstances(target = profile) {
+  const rows = [];
+  Object.entries(target.cardInstances || {}).forEach(([cardName, list]) => {
+    (list || []).forEach(inst => rows.push({ cardName, ...inst }));
+  });
+  return rows;
+}
+
+function findCardInstanceById(instanceId, target = profile) {
+  for (const [cardName, list] of Object.entries(target.cardInstances || {})) {
+    const hit = (list || []).find(x => x.id === instanceId);
+    if (hit) return { cardName, ...hit };
+  }
+  return null;
+}
+
+function addCardInstance(cardName, options = {}) {
+  const target = options.profileRef || profile;
+  if (!target.cardInstances[cardName]) target.cardInstances[cardName] = [];
+  const level = Math.max(1, Math.min(MAX_LEVEL, Number(options.level) || 1));
+  const rank = Math.max(0, Math.min(7, Number(options.rank) || 0));
+  const uid = `c${target.nextCardUid || 1}`;
+  target.nextCardUid = (target.nextCardUid || 1) + 1;
+  const maxHp = computeStats(CARDS[cardName].baseStats, level).HP + rank;
+  const currentHp = Math.max(1, Math.min(maxHp, Number(options.currentHp) || maxHp));
+  target.cardInstances[cardName].push({ id: uid, level, rank, currentHp });
+  normalizeCardCounts(target);
+  return uid;
+}
+
+function cardRank(cardName) {
+  const raw = Number(profile.cardRanks?.[cardName] || 0);
+  return Math.max(0, Math.min(7, Math.floor(raw)));
+}
+
+function cardStatsWithRank(cardName, level = 1, rank = 0) {
+  const base = CARDS[cardName];
+  if (!base) return null;
+  const lvl = Math.max(1, Math.min(MAX_LEVEL, Number(level) || 1));
+  const fixedRank = Math.max(0, Math.min(7, Number(rank) || 0));
+  const grown = computeStats(base.baseStats, lvl);
+  return {
+    level: lvl,
+    rank: fixedRank,
+    stats: {
+      HP: grown.HP + fixedRank,
+      PO: grown.PO + fixedRank,
+      Def: grown.Def + fixedRank,
+      MO: grown.MO + fixedRank,
+      MR: grown.MR + fixedRank,
+      Spd: grown.Spd + fixedRank
+    }
+  };
+}
+
+function ensureCardDamageTypes(unitKey) {
+  if (!profile.cardDamageTypes[unitKey]) {
+    const found = findCardInstanceById(unitKey);
+    const fallback = CARDS[found?.cardName || unitKey]?.types?.[0] || "Normal";
+    profile.cardDamageTypes[unitKey] = { po: fallback, mo: fallback };
+  }
+}
+
+function renderCardsModal() {
+  const list = document.getElementById("cardsOwnedList");
+  const details = document.getElementById("cardDetails");
+  if (!list || !details) return;
+  list.innerHTML = "";
+  const entries = Object.entries(profile.cards || {}).filter(([, qty]) => qty > 0).sort((a, b) => a[0].localeCompare(b[0]));
+  if (!entries.length) {
+    details.textContent = "你还没有拥有任何卡牌。";
+    return;
+  }
+  entries.forEach(([cardName, qty], idx) => {
+    const btn = document.createElement("button");
+    btn.className = "owned-card-btn";
+    btn.textContent = `${cardName} ×${qty}`;
+    btn.addEventListener("click", () => {
+      const info = CARDS[cardName];
+      const instances = (profile.cardInstances[cardName] || []).map(inst => {
+        const grown = cardStatsWithRank(cardName, inst.level, inst.rank);
+        return `- ${inst.id} | Lv.${grown.level} Rank ${grown.rank}/7 | HP ${inst.currentHp}/${grown.stats.HP}`;
+      }).join("\n");
+      details.textContent = `${cardName}\nType: ${info.types.join(" / ")}\nAbility: ${info.ability}\n持有数量: ${qty}\n\n个体列表：\n${instances}\n\n成长规则：Lv1基础值 + 固定公式重算，不使用随机成长。\nDef/MR为软上限减伤，TD无视减伤。`;
+    });
+    list.appendChild(btn);
+    if (idx === 0) btn.click();
+  });
+}
+
+function renderTeamModal() {
+  const root = document.getElementById("teamEditor");
+  if (!root) return;
+  root.innerHTML = "";
+  const labels = ["前排-左", "前排-中", "前排-右", "后排-左", "后排-中", "后排-右"];
+  const instances = allCardInstances().sort((a, b) => a.cardName.localeCompare(b.cardName) || a.id.localeCompare(b.id));
+  const picked = new Set((profile.teamSlots || []).filter(Boolean));
+  labels.forEach((label, idx) => {
+    const wrap = document.createElement("div");
+    wrap.className = "team-slot";
+    const slotCard = profile.teamSlots[idx] || "";
+    wrap.innerHTML = `<b>${label}</b>`;
+    const cardSel = document.createElement("select");
+    const available = instances.filter(inst => !picked.has(inst.id) || inst.id === slotCard);
+    cardSel.innerHTML = `<option value="">(空位)</option>${available.map(inst => `<option value="${inst.id}">${inst.cardName} [${inst.id}] Lv${inst.level}</option>`).join("")}`;
+    cardSel.value = slotCard;
+    const poSel = document.createElement("select");
+    const moSel = document.createElement("select");
+    const updateDamageTypeSelect = () => {
+      const card = cardSel.value;
+      poSel.innerHTML = "";
+      moSel.innerHTML = "";
+      if (!card) return;
+      const found = findCardInstanceById(card);
+      if (!found) return;
+      ensureCardDamageTypes(card);
+      const types = CARDS[found.cardName].types || ["Normal"];
+      types.forEach(t => {
+        poSel.innerHTML += `<option value="${t}">PO Type: ${t}</option>`;
+        moSel.innerHTML += `<option value="${t}">MO Type: ${t}</option>`;
+      });
+      poSel.value = profile.cardDamageTypes[card].po;
+      moSel.value = profile.cardDamageTypes[card].mo;
+    };
+    cardSel.addEventListener("change", () => {
+      profile.teamSlots[idx] = cardSel.value || null;
+      const dup = profile.teamSlots.findIndex((id, i) => id && id === profile.teamSlots[idx] && i !== idx);
+      if (dup >= 0) profile.teamSlots[dup] = null;
+      updateDamageTypeSelect();
+      renderTeamModal();
+      saveProfile();
+    });
+    poSel.addEventListener("change", () => {
+      const card = cardSel.value;
+      if (!card) return;
+      ensureCardDamageTypes(card);
+      profile.cardDamageTypes[card].po = poSel.value;
+      saveProfile();
+    });
+    moSel.addEventListener("change", () => {
+      const card = cardSel.value;
+      if (!card) return;
+      ensureCardDamageTypes(card);
+      profile.cardDamageTypes[card].mo = moSel.value;
+      saveProfile();
+    });
+    updateDamageTypeSelect();
+    wrap.appendChild(cardSel);
+    wrap.appendChild(poSel);
+    wrap.appendChild(moSel);
+    root.appendChild(wrap);
+  });
+}
+
+function enterGame() {
+  gameEntered = true;
+  document.getElementById("saveModal").classList.add("hidden");
+  document.getElementById("gameApp").classList.remove("hidden");
+  document.getElementById("battleLogSection")?.classList.remove("hidden");
+  renderWalletBadge();
+  renderMap();
+  renderSaveSummary();
+}
+
+function showDialogue(messages) {
+  dialogueQueue = Array.isArray(messages) ? [...messages] : [String(messages)];
+  if (!dialogueQueue.length) return;
+  const overlay = document.getElementById("dialogueOverlay");
+  const text = document.getElementById("dialogueText");
+  text.textContent = dialogueQueue[0];
+  overlay.classList.remove("hidden");
+}
+
+function advanceDialogue() {
+  if (!dialogueQueue.length) return false;
+  dialogueQueue.shift();
+  const overlay = document.getElementById("dialogueOverlay");
+  const text = document.getElementById("dialogueText");
+  if (!dialogueQueue.length) {
+    overlay.classList.add("hidden");
+    text.textContent = "";
+    return true;
+  }
+  text.textContent = dialogueQueue[0];
+  return true;
+}
+
+function setSaveModalMode(mode) {
+  const closeBtn = document.getElementById("saveCloseBtn");
+  const saveActions = document.getElementById("saveActions");
+  const entryActions = document.getElementById("saveEntryActions");
+  const entryTips = document.getElementById("saveEntryTips");
+  if (mode === "entry") {
+    closeBtn.classList.add("hidden");
+    saveActions.classList.add("hidden");
+    entryActions.classList.remove("hidden");
+    entryTips.classList.remove("hidden");
+  } else {
+    closeBtn.classList.remove("hidden");
+    saveActions.classList.remove("hidden");
+    entryActions.classList.add("hidden");
+    entryTips.classList.add("hidden");
+  }
+}
+
+function applyLastSaveToProfile() {
+  if (!profile.lastSave) return false;
+  profile.map = { ...profile.lastSave.map };
+  profile.facing = profile.lastSave.facing || profile.facing || "down";
+  profile.cardLevels = { ...(profile.lastSave.cardLevels || profile.cardLevels || {}) };
+  profile.cardRanks = { ...(profile.lastSave.cardRanks || profile.cardRanks || {}) };
+  profile.cardDamageTypes = { ...(profile.lastSave.cardDamageTypes || profile.cardDamageTypes || {}) };
+  profile.teamSlots = Array.isArray(profile.lastSave.teamSlots) && profile.lastSave.teamSlots.length === 6
+    ? [...profile.lastSave.teamSlots]
+    : [...(profile.teamSlots || [null, null, null, null, null, null])];
+  profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
+  profile.clearedNpcs = { ...(profile.lastSave.clearedNpcs || profile.clearedNpcs || {}) };
+  profile.wallet = profile.lastSave.wallet;
+  profile.cardInstances = { ...(profile.lastSave.cardInstances || profile.cardInstances || {}) };
+  profile.nextCardUid = Number(profile.lastSave.nextCardUid || profile.nextCardUid || 1);
+  migrateCardInventory(profile);
+  profile.galladonJoined = !!profile.lastSave.galladonJoined;
+  profile.enemyState = { ...(profile.lastSave.enemyState || {}) };
+  return true;
+}
+
+function applyRewards(rewards) {
+  rewards.forEach(reward => {
+    if (reward.kind === "gold") {
+      profile.wallet += reward.amount;
+    } else if (reward.kind === "card") {
+      for (let i = 0; i < reward.amount; i += 1) addCardInstance(reward.name, { level: 1 });
+    }
+  });
+}
+
+function formatRewardList(rewards) {
+  return rewards.map((r, i) => {
+    if (r.kind === "gold") return `第${i + 1}张: +${r.amount}G`;
+    return `第${i + 1}张: ${r.name} x${r.amount}`;
+  }).join("\n");
+}
+
+function openSelectedPack() {
+  if (openingState) return;
+  const pack = PACKS[selectedPackId];
+  if (!pack) return;
+  if (pack.dailyFree && profile.lastFreePackDate === todayKey()) {
+    document.getElementById("packResult").textContent = "Man for You 今天已领取，请明天再来。";
+    return;
+  }
+  if (profile.wallet < pack.price) {
+    document.getElementById("packResult").textContent = `G 不足，${pack.name} 需要 ${pack.price}G。`;
+    return;
+  }
+  profile.wallet -= pack.price;
+  const rewards = pack.open(profile);
+  applyRewards(rewards);
+  if (pack.dailyFree) profile.lastFreePackDate = todayKey();
+  saveProfile();
+  renderPackModal();
+  startPackOpening(pack.name, rewards);
+}
+
+function startPackOpening(packName, rewards) {
+  openingState = { packName, rewards, index: 0 };
+  const modalCard = document.querySelector("#packModal .modal-card");
+  const opening = document.getElementById("packOpening");
+  const packFloat = document.getElementById("packFloat");
+  const rewardCard = document.getElementById("rewardCard");
+  const hint = document.getElementById("packHint");
+  modalCard.classList.add("opening");
+  opening.classList.remove("hidden");
+  packFloat.classList.remove("hidden");
+  rewardCard.classList.add("hidden");
+  hint.textContent = `点击 ${packName} 卡包，开始开包`;
+}
+
+function rewardToText(reward) {
+  if (reward.kind === "gold") return `+${reward.amount}G`;
+  return `${reward.name} ×${reward.amount}`;
+}
+
+function showNextRewardCard() {
+  if (!openingState) return;
+  const rewardCard = document.getElementById("rewardCard");
+  const hint = document.getElementById("packHint");
+  if (openingState.index >= openingState.rewards.length) {
+    finishPackOpening();
+    return;
+  }
+  const reward = openingState.rewards[openingState.index];
+  rewardCard.classList.remove("hidden");
+  rewardCard.textContent = `第${openingState.index + 1}张\n${rewardToText(reward)}\n(点击继续)`;
+  hint.textContent = "逐张翻开中…";
+}
+
+function finishPackOpening() {
+  if (!openingState) return;
+  const modalCard = document.querySelector("#packModal .modal-card");
+  const opening = document.getElementById("packOpening");
+  const rewardCard = document.getElementById("rewardCard");
+  modalCard.classList.remove("opening");
+  opening.classList.add("hidden");
+  rewardCard.classList.add("hidden");
+  document.getElementById("packResult").textContent = `${openingState.packName} 开包结果：\n${formatRewardList(openingState.rewards)}`;
+  openingState = null;
+}
+
 document.getElementById("poBtn").addEventListener("click", () => { state.selectedAction = "PO"; render(); });
 document.getElementById("moBtn").addEventListener("click", () => { state.selectedAction = "MO"; render(); });
 document.getElementById("skillBtn").addEventListener("click", () => { state.selectedAction = "SKILL"; render(); });
@@ -751,15 +1737,149 @@ document.getElementById("endTurnBtn").addEventListener("click", () => {
   if (state.phase !== "player-select" || state.ended || state.manualBothSides) return;
   state.pending.player = null;
   state.pending.enemy = chooseBestEnemyAction();
-  addLog("Player chooses to wait this round. Enemy action only.");
-  setTimeout(resolveRound, 250);
+  addLog(`Player skips Step ${state.step}/${state.roundStepLimit}. Enemy action locked.`);
+  lockCurrentStepAndContinue();
 });
 
 document.getElementById("restartBtn").addEventListener("click", () => initBattle(state.mode || "demo"));
-document.getElementById("sim1Btn").addEventListener("click", () => initBattle("sim1"));
 document.getElementById("resetBtn").addEventListener("click", () => initBattle("demo"));
+document.getElementById("returnMapBtn").addEventListener("click", () => returnToMapFromBattle());
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.getElementById("sidePanel").classList.toggle("open");
+});
+document.getElementById("packBtn").addEventListener("click", () => {
+  document.getElementById("packModal").classList.remove("hidden");
+  renderPackModal();
+});
+document.getElementById("cardsBtn").addEventListener("click", () => {
+  document.getElementById("cardsModal").classList.remove("hidden");
+  renderCardsModal();
+});
+document.getElementById("teamBtn").addEventListener("click", () => {
+  document.getElementById("teamModal").classList.remove("hidden");
+  renderTeamModal();
+});
+document.getElementById("saveMenuBtn").addEventListener("click", () => {
+  setSaveModalMode("menu");
+  renderSaveSummary();
+  document.getElementById("saveModal").classList.remove("hidden");
+});
+document.getElementById("cardsCloseBtn").addEventListener("click", () => {
+  document.getElementById("cardsModal").classList.add("hidden");
+});
+document.getElementById("teamCloseBtn").addEventListener("click", () => {
+  document.getElementById("teamModal").classList.add("hidden");
+});
+document.getElementById("saveCloseBtn").addEventListener("click", () => {
+  document.getElementById("saveModal").classList.add("hidden");
+});
+document.getElementById("packCloseBtn").addEventListener("click", () => {
+  if (openingState) finishPackOpening();
+  document.getElementById("packModal").classList.add("hidden");
+});
+document.getElementById("packSelector").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (openingState) return;
+  const delta = e.deltaY > 0 ? 1 : -1;
+  selectPackByDelta(delta);
+});
+document.getElementById("openPackBtn").addEventListener("click", openSelectedPack);
+document.getElementById("packFloat").addEventListener("click", () => {
+  if (!openingState) return;
+  document.getElementById("packFloat").classList.add("hidden");
+  showNextRewardCard();
+});
+document.getElementById("rewardCard").addEventListener("click", () => {
+  if (!openingState) return;
+  const rewardCard = document.getElementById("rewardCard");
+  rewardCard.classList.add("slide-out");
+  setTimeout(() => {
+    rewardCard.classList.remove("slide-out");
+    openingState.index += 1;
+    showNextRewardCard();
+  }, 280);
+});
+document.getElementById("dialogueOverlay").addEventListener("click", () => {
+  advanceDialogue();
+});
+
+document.getElementById("startBtn").addEventListener("click", () => {
+  document.getElementById("startScreen").classList.add("hidden");
+  setSaveModalMode("entry");
+  renderSaveSummary();
+  document.getElementById("saveModal").classList.remove("hidden");
+});
+document.getElementById("continueBtn").addEventListener("click", () => {
+  profile = loadProfile();
+  if (!applyLastSaveToProfile()) {
+    addLog("没有检测到可用存档，已按当前进度进入游戏。");
+  } else {
+    addLog("已读取存档，进入游戏。");
+  }
+  enterGame();
+});
+document.getElementById("newGameBtn").addEventListener("click", () => {
+  localStorage.removeItem(SAVE_KEY);
+  profile = defaultProfile();
+  saveProfile();
+  addLog("已创建新游戏。");
+  enterGame();
+});
+document.getElementById("saveBtn").addEventListener("click", () => {
+  profile.lastSave = {
+    map: { ...profile.map },
+    facing: profile.facing,
+    cardLevels: { ...(profile.cardLevels || {}) },
+    cardRanks: { ...(profile.cardRanks || {}) },
+    cardDamageTypes: { ...(profile.cardDamageTypes || {}) },
+    teamSlots: [...(profile.teamSlots || [null, null, null, null, null, null])],
+    cardInstances: { ...(profile.cardInstances || {}) },
+    nextCardUid: profile.nextCardUid || 1,
+    defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
+    clearedNpcs: { ...(profile.clearedNpcs || {}) },
+    wallet: profile.wallet,
+    cards: { ...(profile.cards || {}) },
+    galladonJoined: profile.galladonJoined,
+    enemyState: { ...(profile.enemyState || {}) }
+  };
+  saveProfile();
+  renderSaveSummary();
+  addLog("存档成功。");
+});
+document.getElementById("loadBtn").addEventListener("click", () => {
+  profile = loadProfile();
+  applyLastSaveToProfile();
+  renderWalletBadge();
+  renderMap();
+  renderSaveSummary();
+  addLog("已读取存档。");
+});
+window.addEventListener("keydown", (e) => {
+  if (!gameEntered) return;
+  if (!document.getElementById("dialogueOverlay").classList.contains("hidden")) {
+    const key = e.key.toLowerCase();
+    if (e.code === "KeyZ" || key === "z" || key === "enter" || key === " ") {
+      e.preventDefault();
+      advanceDialogue();
+    }
+    return;
+  }
+  if (!document.getElementById("packModal").classList.contains("hidden")) return;
+  if (!document.getElementById("cardsModal").classList.contains("hidden")) return;
+  if (!document.getElementById("teamModal").classList.contains("hidden")) return;
+  if (!document.getElementById("saveModal").classList.contains("hidden")) return;
+  if (inEncounterBattle) return;
+  const key = e.key.toLowerCase();
+  const isInteract = e.code === "KeyZ" || key === "z";
+  if (isInteract) {
+    e.preventDefault();
+    interactWithNearbyNpc();
+    return;
+  }
+  if (e.code === "KeyW" || key === "w") tryMovePlayer(0, -1);
+  if (e.code === "KeyS" || key === "s") tryMovePlayer(0, 1);
+  if (e.code === "KeyA" || key === "a") tryMovePlayer(-1, 0);
+  if (e.code === "KeyD" || key === "d") tryMovePlayer(1, 0);
 });
 
 initBattle("demo");
