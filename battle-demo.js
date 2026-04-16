@@ -1121,7 +1121,9 @@ function renderMap() {
       minimap.appendChild(cell);
     }
   }
-  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y}) 朝向:${facingLabel(profile.facing)}`;
+  const frontNpc = getFrontNpc(map);
+  const interactionHint = frontNpc ? ` | 前方可互动: ${frontNpc.id} (按Z)` : "";
+  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y}) 朝向:${facingLabel(profile.facing)}${interactionHint}`;
   renderWorldMap();
   renderSaveSummary();
 }
@@ -1184,6 +1186,16 @@ function facingOffset(facing) {
   return { x: 0, y: 1 };
 }
 
+function getFrontPosition() {
+  const offset = facingOffset(profile.facing);
+  return { x: profile.map.x + offset.x, y: profile.map.y + offset.y };
+}
+
+function getFrontNpc(map) {
+  const front = getFrontPosition();
+  return map.npcs?.find(n => n.x === front.x && n.y === front.y) || null;
+}
+
 function tryMovePlayer(dx, dy) {
   const map = MAPS[profile.map.id];
   updateFacingByDelta(dx, dy);
@@ -1231,10 +1243,7 @@ function tryMovePlayer(dx, dy) {
 
 function interactWithNearbyNpc() {
   const map = MAPS[profile.map.id];
-  const offset = facingOffset(profile.facing);
-  const tx = profile.map.x + offset.x;
-  const ty = profile.map.y + offset.y;
-  const npc = map.npcs?.find(n => n.x === tx && n.y === ty);
+  const npc = getFrontNpc(map);
   if (npc) {
     if (npc.id === "galladon") {
       addLog("你与 Galladon 互动。");
@@ -1274,6 +1283,7 @@ function enterGame() {
   gameEntered = true;
   document.getElementById("saveModal").classList.add("hidden");
   document.getElementById("gameApp").classList.remove("hidden");
+  document.getElementById("battleLogSection")?.classList.remove("hidden");
   renderWalletBadge();
   renderMap();
   renderSaveSummary();
