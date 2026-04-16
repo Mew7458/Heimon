@@ -155,6 +155,7 @@ let profile = loadProfile();
 let selectedPackId = "man_for_you";
 let openingState = null;
 let inEncounterBattle = false;
+let gameEntered = false;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -181,10 +182,23 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function defaultProfile() {
+  return {
+    wallet: 1000,
+    cards: {},
+    lastFreePackDate: null,
+    map: { id: "Cave1-1", x: 5, y: 6 },
+    defeatedEnemies: {},
+    galladonJoined: false,
+    lastSave: null,
+    enemyState: {}
+  };
+}
+
 function loadProfile() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {}, galladonJoined: false, lastSave: null, enemyState: {} };
+    if (!raw) return defaultProfile();
     const parsed = JSON.parse(raw);
     return {
       wallet: Number.isFinite(parsed.wallet) ? parsed.wallet : 1000,
@@ -197,7 +211,7 @@ function loadProfile() {
       enemyState: parsed.enemyState || {}
     };
   } catch {
-    return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {}, galladonJoined: false, lastSave: null, enemyState: {} };
+    return defaultProfile();
   }
 }
 
@@ -1218,6 +1232,44 @@ function renderSaveSummary() {
 Galladon入队: ${profile.galladonJoined ? "是" : "否"}`;
 }
 
+function enterGame() {
+  gameEntered = true;
+  document.getElementById("saveModal").classList.add("hidden");
+  document.getElementById("gameApp").classList.remove("hidden");
+  renderWalletBadge();
+  renderMap();
+  renderSaveSummary();
+}
+
+function setSaveModalMode(mode) {
+  const closeBtn = document.getElementById("saveCloseBtn");
+  const saveActions = document.getElementById("saveActions");
+  const entryActions = document.getElementById("saveEntryActions");
+  const entryTips = document.getElementById("saveEntryTips");
+  if (mode === "entry") {
+    closeBtn.classList.add("hidden");
+    saveActions.classList.add("hidden");
+    entryActions.classList.remove("hidden");
+    entryTips.classList.remove("hidden");
+  } else {
+    closeBtn.classList.remove("hidden");
+    saveActions.classList.remove("hidden");
+    entryActions.classList.add("hidden");
+    entryTips.classList.add("hidden");
+  }
+}
+
+function applyLastSaveToProfile() {
+  if (!profile.lastSave) return false;
+  profile.map = { ...profile.lastSave.map };
+  profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
+  profile.wallet = profile.lastSave.wallet;
+  profile.cards = { ...profile.lastSave.cards };
+  profile.galladonJoined = !!profile.lastSave.galladonJoined;
+  profile.enemyState = { ...(profile.lastSave.enemyState || {}) };
+  return true;
+}
+
 function applyRewards(rewards) {
   rewards.forEach(reward => {
     if (reward.kind === "gold") {
@@ -1323,6 +1375,7 @@ document.getElementById("packBtn").addEventListener("click", () => {
   renderPackModal();
 });
 document.getElementById("saveMenuBtn").addEventListener("click", () => {
+  setSaveModalMode("menu");
   renderSaveSummary();
   document.getElementById("saveModal").classList.remove("hidden");
 });
@@ -1358,9 +1411,25 @@ document.getElementById("rewardCard").addEventListener("click", () => {
 
 document.getElementById("startBtn").addEventListener("click", () => {
   document.getElementById("startScreen").classList.add("hidden");
-  document.getElementById("gameApp").classList.remove("hidden");
-  renderWalletBadge();
-  renderMap();
+  setSaveModalMode("entry");
+  renderSaveSummary();
+  document.getElementById("saveModal").classList.remove("hidden");
+});
+document.getElementById("continueBtn").addEventListener("click", () => {
+  profile = loadProfile();
+  if (!applyLastSaveToProfile()) {
+    addLog("没有检测到可用存档，已按当前进度进入游戏。");
+  } else {
+    addLog("已读取存档，进入游戏。");
+  }
+  enterGame();
+});
+document.getElementById("newGameBtn").addEventListener("click", () => {
+  localStorage.removeItem(SAVE_KEY);
+  profile = defaultProfile();
+  saveProfile();
+  addLog("已创建新游戏。");
+  enterGame();
 });
 document.getElementById("saveBtn").addEventListener("click", () => {
   profile.lastSave = {
@@ -1368,7 +1437,8 @@ document.getElementById("saveBtn").addEventListener("click", () => {
     defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
     wallet: profile.wallet,
     cards: { ...(profile.cards || {}) },
-    galladonJoined: profile.galladonJoined
+    galladonJoined: profile.galladonJoined,
+    enemyState: { ...(profile.enemyState || {}) }
   };
   saveProfile();
   renderSaveSummary();
@@ -1376,31 +1446,27 @@ document.getElementById("saveBtn").addEventListener("click", () => {
 });
 document.getElementById("loadBtn").addEventListener("click", () => {
   profile = loadProfile();
-  if (profile.lastSave) {
-    profile.map = { ...profile.lastSave.map };
-    profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
-    profile.wallet = profile.lastSave.wallet;
-    profile.cards = { ...profile.lastSave.cards };
-    profile.galladonJoined = !!profile.lastSave.galladonJoined;
-  }
+  applyLastSaveToProfile();
   renderWalletBadge();
   renderMap();
   renderSaveSummary();
   addLog("已读取存档。");
 });
 window.addEventListener("keydown", (e) => {
-  if (document.getElementById("gameApp").classList.contains("hidden")) return;
+  if (!gameEntered) return;
   if (!document.getElementById("packModal").classList.contains("hidden")) return;
   if (!document.getElementById("saveModal").classList.contains("hidden")) return;
   const key = e.key.toLowerCase();
-  if (key === "z") {
+  const isInteract = e.code === "KeyZ" || key === "z";
+  if (isInteract) {
+    e.preventDefault();
     interactWithNearbyNpc();
     return;
   }
-  if (key === "w") tryMovePlayer(0, -1);
-  if (key === "s") tryMovePlayer(0, 1);
-  if (key === "a") tryMovePlayer(-1, 0);
-  if (key === "d") tryMovePlayer(1, 0);
+  if (e.code === "KeyW" || key === "w") tryMovePlayer(0, -1);
+  if (e.code === "KeyS" || key === "s") tryMovePlayer(0, 1);
+  if (e.code === "KeyA" || key === "a") tryMovePlayer(-1, 0);
+  if (e.code === "KeyD" || key === "d") tryMovePlayer(1, 0);
 });
 
 initBattle("demo");
