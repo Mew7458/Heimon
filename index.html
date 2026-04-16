@@ -7,24 +7,37 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <section id="startScreen" class="start-screen">
+    <div class="start-logo">The Battle Cards</div>
+    <button id="startBtn" class="start-btn">Start</button>
+  </section>
+
+  <div id="gameApp" class="hidden">
   <header class="topbar">
     <div class="logo">The Battle Cards</div>
-    <button id="menuToggle" class="house-btn" aria-label="Open menu">🏠</button>
+    <div class="top-right">
+      <div class="wallet-badge">Wallet: <span id="walletBadgeValue">0</span>G</div>
+      <button id="menuToggle" class="house-btn" aria-label="Open menu">🏠</button>
+    </div>
   </header>
 
   <aside id="sidePanel" class="side-panel">
     <button>Base</button>
-    <button>Cards</button>
-    <button>Team</button>
+    <button id="cardsBtn">Cards</button>
+    <button id="teamBtn">Team</button>
     <button>Bag</button>
-    <button id="sim1Btn">模拟战斗1</button>
+    <button id="packBtn">Pack</button>
+    <button id="saveMenuBtn">Save</button>
     <button id="resetBtn">Exit</button>
     <button disabled>Locked</button>
   </aside>
 
   <main>
     <section class="status-row">
-      <div class="minimap">Mini Map</div>
+      <div>
+        <div id="minimap" class="minimap"></div>
+        <small id="mapInfo">Map</small>
+      </div>
       <div>
         <div id="phaseText">Player Turn</div>
         <div id="roundText">Round 1</div>
@@ -32,7 +45,13 @@
     </section>
 
     <section class="battlefield">
-      <h2>Battlefield (Vertical Face-off)</h2>
+      <h2>World Map</h2>
+      <div id="worldMap" class="world-map"></div>
+      <small>WASD移动并调整朝向，Z与正前方单位互动。绿色=玩家，红色=敌人，蓝色=NPC，黄色=出口，灰色=障碍。</small>
+    </section>
+
+    <section id="battleSim" class="battlefield hidden">
+      <h2>Battlefield (Logic kept, simulator UI hidden)</h2>
       <div>
         <h3>玩家2</h3>
         <div id="enemyGrid" class="team-board"></div>
@@ -44,7 +63,7 @@
       </div>
     </section>
 
-    <section class="controls">
+    <section class="controls hidden">
       <button id="poBtn">PO</button>
       <button id="moBtn">MO</button>
       <button id="skillBtn">Skill</button>
@@ -53,10 +72,103 @@
     </section>
 
     <section>
+      <h3>Stats / Damage Terms</h3>
+      <div class="legend">
+        <div><b>HP</b>: Health</div>
+        <div><b>PO</b>: Physical Offense</div>
+        <div><b>Def</b>: Defense</div>
+        <div><b>MO</b>: Magical Offense</div>
+        <div><b>MR</b>: Magic Resistance</div>
+        <div><b>Spd</b>: Speed</div>
+        <div><b>TD</b>: True Damage (ignores all damage reduction)</div>
+      </div>
+    </section>
+
+    <section id="battleLogSection" class="hidden">
       <h3>Battle Log</h3>
       <div id="log" class="log"></div>
     </section>
   </main>
+  </div>
+
+  <section id="packModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Pack</h3>
+        <button id="packCloseBtn">✕</button>
+      </div>
+      <div class="pack-wallet">Wallet: <span id="walletValue">0</span>G</div>
+      <div id="packSelector" class="pack-selector">
+        <div class="gear-column">
+          <div class="gear-icon">⚙️</div>
+          <small>滚轮切换</small>
+        </div>
+        <div class="pack-current">
+          <b id="packNameLabel">Man for You</b>
+          <small id="packPriceLabel">Daily Free Pack</small>
+        </div>
+      </div>
+      <div class="pack-actions">
+        <button id="openPackBtn">Open Pack</button>
+      </div>
+      <div id="packResult" class="pack-result">Select a pack and open it.</div>
+      <div id="packOpening" class="pack-opening hidden">
+        <div id="packFloat" class="pack-float">📦</div>
+        <div id="packHint" class="pack-hint">点击卡包打开</div>
+        <div id="rewardCard" class="reward-card hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="saveModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Save / Load</h3>
+        <button id="saveCloseBtn">✕</button>
+      </div>
+      <div id="saveEntryTips" class="pack-result hidden">请选择“继续游戏”或“新游戏”，然后进入冒险。</div>
+      <div id="saveSummary" class="pack-result"></div>
+      <div id="saveEntryActions" class="pack-actions hidden">
+        <button id="continueBtn">Continue</button>
+        <button id="newGameBtn">New Game</button>
+      </div>
+      <div id="saveActions" class="pack-actions">
+        <button id="saveBtn">Save</button>
+        <button id="loadBtn">Load</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="cardsModal" class="modal hidden">
+    <div class="modal-card large">
+      <div class="modal-head">
+        <h3>Cards</h3>
+        <button id="cardsCloseBtn">✕</button>
+      </div>
+      <div class="cards-layout">
+        <div id="cardsOwnedList" class="cards-owned-list"></div>
+        <div id="cardDetails" class="card-details">请选择左侧卡牌查看详情。</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="teamModal" class="modal hidden">
+    <div class="modal-card large">
+      <div class="modal-head">
+        <h3>Team</h3>
+        <button id="teamCloseBtn">✕</button>
+      </div>
+      <div id="teamEditor" class="team-editor"></div>
+      <div class="team-footnote">前排: 左/中/右；后排: 左/中/右。每格可配置该单位 PO/MO 的伤害类型。</div>
+    </div>
+  </section>
+
+  <section id="dialogueOverlay" class="dialogue-overlay hidden" role="dialog" aria-live="polite">
+    <div id="dialogueBox" class="dialogue-box">
+      <div id="dialogueText" class="dialogue-text"></div>
+      <small>按 Z 或点击继续</small>
+    </div>
+  </section>
 
   <script src="battle-demo.js"></script>
 </body>
