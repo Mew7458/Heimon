@@ -33,7 +33,7 @@
   </aside>
 
   <main>
-    <section class="status-row">
+    <section id="worldStatus" class="status-row">
       <div>
         <div id="minimap" class="minimap"></div>
         <small id="mapInfo">Map</small>
@@ -44,7 +44,7 @@
       </div>
     </section>
 
-    <section class="battlefield">
+    <section id="worldSection" class="battlefield">
       <h2>World Map</h2>
       <div id="worldMap" class="world-map"></div>
       <small>WASD移动并调整朝向，Z与正前方单位互动。绿色=玩家，红色=敌人，蓝色=NPC，黄色=出口，灰色=障碍。</small>
@@ -69,6 +69,7 @@
       <button id="skillBtn">Skill</button>
       <button id="endTurnBtn">Skip Turn</button>
       <button id="restartBtn">Restart Demo</button>
+      <button id="returnMapBtn">Return Map</button>
     </section>
 
     <section>

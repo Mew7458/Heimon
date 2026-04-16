@@ -152,6 +152,7 @@ const MAPS = {
 };
 
 let profile = loadProfile();
+normalizeCardCounts();
 let selectedPackId = "man_for_you";
 let openingState = null;
 let inEncounterBattle = false;
@@ -184,16 +185,24 @@ function todayKey() {
 }
 
 function defaultProfile() {
+  const base = {
+    Man: [{ id: "c1", level: 1, rank: 0, currentHp: computeStats(CARDS.Man.baseStats, 1).HP }],
+    Dandi: [{ id: "c2", level: 1, rank: 0, currentHp: computeStats(CARDS.Dandi.baseStats, 1).HP }],
+    Cat: [{ id: "c3", level: 1, rank: 0, currentHp: computeStats(CARDS.Cat.baseStats, 1).HP }, { id: "c4", level: 1, rank: 0, currentHp: computeStats(CARDS.Cat.baseStats, 1).HP }],
+    Brig: [{ id: "c5", level: 1, rank: 0, currentHp: computeStats(CARDS.Brig.baseStats, 1).HP }]
+  };
   return {
     wallet: 1000,
-    cards: {},
+    cards: { Man: 1, Dandi: 1, Cat: 2, Brig: 1 },
+    cardInstances: base,
+    nextCardUid: 6,
     lastFreePackDate: null,
     map: { id: "Cave1-1", x: 5, y: 6 },
     facing: "down",
     cardLevels: {},
     cardRanks: {},
     cardDamageTypes: {},
-    teamSlots: ["Man", null, "Dandi", "Cat", "Brig", "Cat"],
+    teamSlots: ["c1", null, "c2", "c3", "c5", "c4"],
     defeatedEnemies: {},
     clearedNpcs: {},
     galladonJoined: false,
@@ -207,25 +216,63 @@ function loadProfile() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return defaultProfile();
     const parsed = JSON.parse(raw);
-    return {
+    const loaded = {
       wallet: Number.isFinite(parsed.wallet) ? parsed.wallet : 1000,
       cards: parsed.cards || {},
+      cardInstances: parsed.cardInstances || {},
+      nextCardUid: Number.isFinite(parsed.nextCardUid) ? parsed.nextCardUid : 1,
       lastFreePackDate: parsed.lastFreePackDate || null,
       map: parsed.map || { id: "Cave1-1", x: 5, y: 6 },
       facing: parsed.facing || "down",
       cardLevels: parsed.cardLevels || {},
       cardRanks: parsed.cardRanks || {},
       cardDamageTypes: parsed.cardDamageTypes || {},
-      teamSlots: Array.isArray(parsed.teamSlots) && parsed.teamSlots.length === 6 ? parsed.teamSlots : ["Man", null, "Dandi", "Cat", "Brig", "Cat"],
+      teamSlots: Array.isArray(parsed.teamSlots) && parsed.teamSlots.length === 6 ? parsed.teamSlots : [null, null, null, null, null, null],
       defeatedEnemies: parsed.defeatedEnemies || {},
       clearedNpcs: parsed.clearedNpcs || {},
       galladonJoined: !!parsed.galladonJoined,
       lastSave: parsed.lastSave || null,
       enemyState: parsed.enemyState || {}
     };
+    migrateCardInventory(loaded);
+    return loaded;
   } catch {
     return defaultProfile();
   }
+}
+
+function migrateCardInventory(target) {
+  if (!target.cardInstances || !Object.keys(target.cardInstances).length) {
+    target.cardInstances = {};
+    target.nextCardUid = Math.max(1, Number(target.nextCardUid) || 1);
+    Object.entries(target.cards || {}).forEach(([cardName, qty]) => {
+      for (let i = 0; i < qty; i += 1) addCardInstance(cardName, { profileRef: target });
+    });
+  }
+  normalizeCardCounts(target);
+  if (Array.isArray(target.teamSlots)) {
+    const used = new Set();
+    target.teamSlots = target.teamSlots.map(slot => {
+      if (!slot) return null;
+      if (String(slot).startsWith("c")) {
+        used.add(slot);
+        return slot;
+      }
+      const list = target.cardInstances[slot] || [];
+      const pick = list.find(inst => !used.has(inst.id));
+      if (!pick) return null;
+      used.add(pick.id);
+      return pick.id;
+    });
+  }
+}
+
+function normalizeCardCounts(target = profile) {
+  const counts = {};
+  Object.entries(target.cardInstances || {}).forEach(([cardName, arr]) => {
+    counts[cardName] = (arr || []).length;
+  });
+  target.cards = counts;
 }
 
 function saveProfile() {
@@ -1266,7 +1313,11 @@ function interactWithNearbyNpc() {
       messages.push("你与 Galladon 对话。");
       if (!profile.galladonJoined) {
         profile.galladonJoined = true;
-        profile.cards.Galladon = (profile.cards.Galladon || 0) + 1;
+        const galladonId = addCardInstance("Galladon", { level: 1, currentHp: 1, rank: 0 });
+        if (!profile.teamSlots.includes(galladonId)) {
+          const empty = profile.teamSlots.findIndex(x => !x);
+          if (empty >= 0) profile.teamSlots[empty] = galladonId;
+        }
         messages.push("*Galladon Has Joined the Party");
       }
       profile.clearedNpcs[`${profile.map.id}:${npc.id}`] = true;
@@ -1286,10 +1337,21 @@ function interactWithNearbyNpc() {
 
 function startEncounterBattle() {
   inEncounterBattle = true;
+  document.getElementById("worldSection")?.classList.add("hidden");
+  document.getElementById("worldStatus")?.classList.add("hidden");
   document.getElementById("battleSim")?.classList.remove("hidden");
   document.querySelector(".controls")?.classList.remove("hidden");
   document.getElementById("battleLogSection")?.classList.remove("hidden");
   initBattle("demo");
+}
+
+function returnToMapFromBattle() {
+  inEncounterBattle = false;
+  document.getElementById("battleSim")?.classList.add("hidden");
+  document.querySelector(".controls")?.classList.add("hidden");
+  document.getElementById("worldSection")?.classList.remove("hidden");
+  document.getElementById("worldStatus")?.classList.remove("hidden");
+  renderMap();
 }
 
 function renderSaveSummary() {
@@ -1297,7 +1359,7 @@ function renderSaveSummary() {
   if (!el) return;
   el.textContent = `当前地图: ${profile.map.id} (${profile.map.x}, ${profile.map.y})
 钱包: ${profile.wallet}G
-已拥有卡牌种类: ${Object.keys(profile.cards || {}).length}
+已拥有卡牌总数: ${Object.values(profile.cards || {}).reduce((s, n) => s + n, 0)}
 已击败地图敌人: ${Object.keys(profile.defeatedEnemies || {}).length}
 Galladon入队: ${profile.galladonJoined ? "是" : "否"}`;
 }
@@ -1307,35 +1369,66 @@ function cardLevel(cardName) {
   return Math.max(1, Math.min(MAX_LEVEL, Math.floor(raw)));
 }
 
+function allCardInstances(target = profile) {
+  const rows = [];
+  Object.entries(target.cardInstances || {}).forEach(([cardName, list]) => {
+    (list || []).forEach(inst => rows.push({ cardName, ...inst }));
+  });
+  return rows;
+}
+
+function findCardInstanceById(instanceId, target = profile) {
+  for (const [cardName, list] of Object.entries(target.cardInstances || {})) {
+    const hit = (list || []).find(x => x.id === instanceId);
+    if (hit) return { cardName, ...hit };
+  }
+  return null;
+}
+
+function addCardInstance(cardName, options = {}) {
+  const target = options.profileRef || profile;
+  if (!target.cardInstances[cardName]) target.cardInstances[cardName] = [];
+  const level = Math.max(1, Math.min(MAX_LEVEL, Number(options.level) || 1));
+  const rank = Math.max(0, Math.min(7, Number(options.rank) || 0));
+  const uid = `c${target.nextCardUid || 1}`;
+  target.nextCardUid = (target.nextCardUid || 1) + 1;
+  const maxHp = computeStats(CARDS[cardName].baseStats, level).HP + rank;
+  const currentHp = Math.max(1, Math.min(maxHp, Number(options.currentHp) || maxHp));
+  target.cardInstances[cardName].push({ id: uid, level, rank, currentHp });
+  normalizeCardCounts(target);
+  return uid;
+}
+
 function cardRank(cardName) {
   const raw = Number(profile.cardRanks?.[cardName] || 0);
   return Math.max(0, Math.min(7, Math.floor(raw)));
 }
 
-function cardStatsWithRank(cardName) {
+function cardStatsWithRank(cardName, level = 1, rank = 0) {
   const base = CARDS[cardName];
   if (!base) return null;
-  const lvl = cardLevel(cardName);
-  const rank = cardRank(cardName);
+  const lvl = Math.max(1, Math.min(MAX_LEVEL, Number(level) || 1));
+  const fixedRank = Math.max(0, Math.min(7, Number(rank) || 0));
   const grown = computeStats(base.baseStats, lvl);
   return {
     level: lvl,
-    rank,
+    rank: fixedRank,
     stats: {
-      HP: grown.HP + rank,
-      PO: grown.PO + rank,
-      Def: grown.Def + rank,
-      MO: grown.MO + rank,
-      MR: grown.MR + rank,
-      Spd: grown.Spd + rank
+      HP: grown.HP + fixedRank,
+      PO: grown.PO + fixedRank,
+      Def: grown.Def + fixedRank,
+      MO: grown.MO + fixedRank,
+      MR: grown.MR + fixedRank,
+      Spd: grown.Spd + fixedRank
     }
   };
 }
 
-function ensureCardDamageTypes(cardName) {
-  if (!profile.cardDamageTypes[cardName]) {
-    const fallback = CARDS[cardName]?.types?.[0] || "Normal";
-    profile.cardDamageTypes[cardName] = { po: fallback, mo: fallback };
+function ensureCardDamageTypes(unitKey) {
+  if (!profile.cardDamageTypes[unitKey]) {
+    const found = findCardInstanceById(unitKey);
+    const fallback = CARDS[found?.cardName || unitKey]?.types?.[0] || "Normal";
+    profile.cardDamageTypes[unitKey] = { po: fallback, mo: fallback };
   }
 }
 
@@ -1355,8 +1448,11 @@ function renderCardsModal() {
     btn.textContent = `${cardName} ×${qty}`;
     btn.addEventListener("click", () => {
       const info = CARDS[cardName];
-      const grown = cardStatsWithRank(cardName);
-      details.textContent = `${cardName}\nType: ${info.types.join(" / ")}\nAbility: ${info.ability}\nLv.${grown.level}  Rank ${grown.rank}/7\nHP ${grown.stats.HP} | PO ${grown.stats.PO} | Def ${grown.stats.Def} | MO ${grown.stats.MO} | MR ${grown.stats.MR} | Spd ${grown.stats.Spd}\n\n成长规则：Lv1基础值 + 固定公式重算，不使用随机成长。\nDef/MR为软上限减伤，TD无视减伤。`;
+      const instances = (profile.cardInstances[cardName] || []).map(inst => {
+        const grown = cardStatsWithRank(cardName, inst.level, inst.rank);
+        return `- ${inst.id} | Lv.${grown.level} Rank ${grown.rank}/7 | HP ${inst.currentHp}/${grown.stats.HP}`;
+      }).join("\n");
+      details.textContent = `${cardName}\nType: ${info.types.join(" / ")}\nAbility: ${info.ability}\n持有数量: ${qty}\n\n个体列表：\n${instances}\n\n成长规则：Lv1基础值 + 固定公式重算，不使用随机成长。\nDef/MR为软上限减伤，TD无视减伤。`;
     });
     list.appendChild(btn);
     if (idx === 0) btn.click();
@@ -1368,14 +1464,17 @@ function renderTeamModal() {
   if (!root) return;
   root.innerHTML = "";
   const labels = ["前排-左", "前排-中", "前排-右", "后排-左", "后排-中", "后排-右"];
-  const ownedCards = Object.entries(profile.cards || {}).filter(([, qty]) => qty > 0).map(([name]) => name).sort((a, b) => a.localeCompare(b));
+  const instances = allCardInstances().sort((a, b) => a.cardName.localeCompare(b.cardName) || a.id.localeCompare(b.id));
+  const picked = new Set((profile.teamSlots || []).filter(Boolean));
   labels.forEach((label, idx) => {
     const wrap = document.createElement("div");
     wrap.className = "team-slot";
     const slotCard = profile.teamSlots[idx] || "";
     wrap.innerHTML = `<b>${label}</b>`;
     const cardSel = document.createElement("select");
-    cardSel.innerHTML = `<option value="">(空位)</option>${ownedCards.map(name => `<option value="${name}">${name}</option>`).join("")}`;
+    const ownChoice = slotCard ? findCardInstanceById(slotCard) : null;
+    const available = instances.filter(inst => !picked.has(inst.id) || inst.id === slotCard);
+    cardSel.innerHTML = `<option value="">(空位)</option>${available.map(inst => `<option value="${inst.id}">${inst.cardName} [${inst.id}] Lv${inst.level}</option>`).join("")}`;
     cardSel.value = slotCard;
     const poSel = document.createElement("select");
     const moSel = document.createElement("select");
@@ -1384,8 +1483,10 @@ function renderTeamModal() {
       poSel.innerHTML = "";
       moSel.innerHTML = "";
       if (!card) return;
+      const found = findCardInstanceById(card);
+      if (!found) return;
       ensureCardDamageTypes(card);
-      const types = CARDS[card].types || ["Normal"];
+      const types = CARDS[found.cardName].types || ["Normal"];
       types.forEach(t => {
         poSel.innerHTML += `<option value="${t}">PO Type: ${t}</option>`;
         moSel.innerHTML += `<option value="${t}">MO Type: ${t}</option>`;
@@ -1395,7 +1496,10 @@ function renderTeamModal() {
     };
     cardSel.addEventListener("change", () => {
       profile.teamSlots[idx] = cardSel.value || null;
+      const dup = profile.teamSlots.findIndex((id, i) => id && id === profile.teamSlots[idx] && i !== idx);
+      if (dup >= 0) profile.teamSlots[dup] = null;
       updateDamageTypeSelect();
+      renderTeamModal();
       saveProfile();
     });
     poSel.addEventListener("change", () => {
@@ -1480,11 +1584,13 @@ function applyLastSaveToProfile() {
   profile.cardDamageTypes = { ...(profile.lastSave.cardDamageTypes || profile.cardDamageTypes || {}) };
   profile.teamSlots = Array.isArray(profile.lastSave.teamSlots) && profile.lastSave.teamSlots.length === 6
     ? [...profile.lastSave.teamSlots]
-    : [...(profile.teamSlots || ["Man", null, "Dandi", "Cat", "Brig", "Cat"])];
+    : [...(profile.teamSlots || [null, null, null, null, null, null])];
   profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
   profile.clearedNpcs = { ...(profile.lastSave.clearedNpcs || profile.clearedNpcs || {}) };
   profile.wallet = profile.lastSave.wallet;
-  profile.cards = { ...profile.lastSave.cards };
+  profile.cardInstances = { ...(profile.lastSave.cardInstances || profile.cardInstances || {}) };
+  profile.nextCardUid = Number(profile.lastSave.nextCardUid || profile.nextCardUid || 1);
+  normalizeCardCounts();
   profile.galladonJoined = !!profile.lastSave.galladonJoined;
   profile.enemyState = { ...(profile.lastSave.enemyState || {}) };
   return true;
@@ -1495,7 +1601,7 @@ function applyRewards(rewards) {
     if (reward.kind === "gold") {
       profile.wallet += reward.amount;
     } else if (reward.kind === "card") {
-      profile.cards[reward.name] = (profile.cards[reward.name] || 0) + reward.amount;
+      for (let i = 0; i < reward.amount; i += 1) addCardInstance(reward.name, { level: 1 });
     }
   });
 }
@@ -1587,6 +1693,7 @@ document.getElementById("endTurnBtn").addEventListener("click", () => {
 
 document.getElementById("restartBtn").addEventListener("click", () => initBattle(state.mode || "demo"));
 document.getElementById("resetBtn").addEventListener("click", () => initBattle("demo"));
+document.getElementById("returnMapBtn").addEventListener("click", () => returnToMapFromBattle());
 document.getElementById("menuToggle").addEventListener("click", () => {
   document.getElementById("sidePanel").classList.toggle("open");
 });
@@ -1675,7 +1782,9 @@ document.getElementById("saveBtn").addEventListener("click", () => {
     cardLevels: { ...(profile.cardLevels || {}) },
     cardRanks: { ...(profile.cardRanks || {}) },
     cardDamageTypes: { ...(profile.cardDamageTypes || {}) },
-    teamSlots: [...(profile.teamSlots || ["Man", null, "Dandi", "Cat", "Brig", "Cat"])],
+    teamSlots: [...(profile.teamSlots || [null, null, null, null, null, null])],
+    cardInstances: { ...(profile.cardInstances || {}) },
+    nextCardUid: profile.nextCardUid || 1,
     defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
     clearedNpcs: { ...(profile.clearedNpcs || {}) },
     wallet: profile.wallet,
@@ -1709,6 +1818,7 @@ window.addEventListener("keydown", (e) => {
   if (!document.getElementById("cardsModal").classList.contains("hidden")) return;
   if (!document.getElementById("teamModal").classList.contains("hidden")) return;
   if (!document.getElementById("saveModal").classList.contains("hidden")) return;
+  if (inEncounterBattle) return;
   const key = e.key.toLowerCase();
   const isInteract = e.code === "KeyZ" || key === "z";
   if (isInteract) {
