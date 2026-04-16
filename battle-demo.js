@@ -159,6 +159,10 @@ let inEncounterBattle = false;
 let gameEntered = false;
 let dialogueQueue = [];
 let activeEncounter = null;
+let worldLocked = false;
+let dialogueResolve = null;
+let enemyMoveTicker = null;
+let isAnimatingMove = false;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -201,6 +205,7 @@ function defaultProfile() {
     defeatedEnemies: {},
     enemyRespawnAt: {},
     clearedNpcs: {},
+    introSeen: false,
     galladonJoined: false,
     lastSave: null,
     enemyState: {}
@@ -227,6 +232,7 @@ function loadProfile() {
       defeatedEnemies: parsed.defeatedEnemies || {},
       enemyRespawnAt: parsed.enemyRespawnAt || {},
       clearedNpcs: parsed.clearedNpcs || {},
+      introSeen: !!parsed.introSeen,
       galladonJoined: !!parsed.galladonJoined,
       lastSave: parsed.lastSave || null,
       enemyState: parsed.enemyState || {}
@@ -1044,6 +1050,35 @@ function finalizeEncounterBattle(playerWon) {
   }, 450);
 }
 
+function syncTeamHpFromBattle() {
+  (state.player || []).forEach(unit => {
+    if (!unit?.instanceId) return;
+    const found = findCardInstanceById(unit.instanceId);
+    if (!found) return;
+    const list = profile.cardInstances[found.cardName] || [];
+    const ref = list.find(x => x.id === unit.instanceId);
+    if (!ref) return;
+    ref.currentHp = Math.max(1, Math.min(unit.stats.HP, unit.hp));
+  });
+  normalizeCardCounts();
+}
+
+function finalizeEncounterBattle(playerWon) {
+  syncTeamHpFromBattle();
+  if (playerWon && activeEncounter) {
+    const key = `${activeEncounter.mapId}:${activeEncounter.enemyId}`;
+    profile.enemyRespawnAt[key] = Date.now() + 30_000;
+    profile.wallet += 10;
+    addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
+  setTimeout(() => {
+    if (inEncounterBattle && state.mode === "encounter" && state.ended) returnToMapFromBattle();
+  }, 450);
+}
+
 function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = "PO") {
   if (!unit) return `<div class="slot ${cls}"><div class="rowtag">${rowTag}</div><small>Empty</small></div>`;
   const hpPct = Math.max(0, Math.round((unit.hp / unit.stats.HP) * 100));
@@ -1218,6 +1253,16 @@ function moveEnemiesRandom(mapId) {
   });
 }
 
+function startEnemyMoveTicker() {
+  if (enemyMoveTicker) clearInterval(enemyMoveTicker);
+  enemyMoveTicker = setInterval(() => {
+    if (!gameEntered || worldLocked || inEncounterBattle) return;
+    moveEnemiesRandom(profile.map.id);
+    saveProfile();
+    renderMap();
+  }, 900);
+}
+
 function renderMap() {
   const minimap = document.getElementById("minimap");
   const info = document.getElementById("mapInfo");
@@ -1318,6 +1363,11 @@ function getFrontNpc(map) {
 }
 
 function tryMovePlayer(dx, dy) {
+  if (isAnimatingMove || worldLocked || inEncounterBattle) return;
+  isAnimatingMove = true;
+  setTimeout(() => {
+    isAnimatingMove = false;
+  }, 120);
   const map = MAPS[profile.map.id];
   updateFacingByDelta(dx, dy);
   const nx = profile.map.x + dx;
@@ -1336,7 +1386,6 @@ function tryMovePlayer(dx, dy) {
   }
   profile.map.x = nx;
   profile.map.y = ny;
-  moveEnemiesRandom(profile.map.id);
   const enemy = enemyAtPosition(profile.map.id, nx, ny);
   if (enemy) {
     activeEncounter = { mapId: profile.map.id, enemyId: enemy.id };
@@ -1609,11 +1658,13 @@ function enterGame() {
   renderWalletBadge();
   renderMap();
   renderSaveSummary();
+  startEnemyMoveTicker();
 }
 
-function showDialogue(messages) {
+function showDialogue(messages, onDone = null) {
   dialogueQueue = Array.isArray(messages) ? [...messages] : [String(messages)];
   if (!dialogueQueue.length) return;
+  dialogueResolve = onDone;
   const overlay = document.getElementById("dialogueOverlay");
   const text = document.getElementById("dialogueText");
   text.textContent = dialogueQueue[0];
@@ -1628,10 +1679,45 @@ function advanceDialogue() {
   if (!dialogueQueue.length) {
     overlay.classList.add("hidden");
     text.textContent = "";
+    if (dialogueResolve) {
+      const done = dialogueResolve;
+      dialogueResolve = null;
+      done();
+    }
     return true;
   }
   text.textContent = dialogueQueue[0];
   return true;
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function showDialogueSequence(messages) {
+  return new Promise(resolve => showDialogue(messages, resolve));
+}
+
+async function playOpeningCutscene() {
+  worldLocked = true;
+  const fade = document.getElementById("fadeOverlay");
+  fade.classList.remove("hidden");
+  fade.style.opacity = "1";
+  await wait(200);
+  fade.style.opacity = "0.7";
+  await wait(1200);
+  await showDialogueSequence([
+    "You: “……”",
+    "You: ”……“",
+    "You: ”..Wha..what..?“",
+    "You: ”Where am I….“"
+  ]);
+  fade.style.opacity = "0";
+  await wait(900);
+  fade.classList.add("hidden");
+  profile.introSeen = true;
+  saveProfile();
+  worldLocked = false;
 }
 
 function setSaveModalMode(mode) {
@@ -1665,6 +1751,7 @@ function applyLastSaveToProfile() {
   profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
   profile.enemyRespawnAt = { ...(profile.lastSave.enemyRespawnAt || profile.enemyRespawnAt || {}) };
   profile.clearedNpcs = { ...(profile.lastSave.clearedNpcs || profile.clearedNpcs || {}) };
+  profile.introSeen = profile.lastSave.introSeen ?? profile.introSeen;
   profile.wallet = profile.lastSave.wallet;
   profile.cardInstances = { ...(profile.lastSave.cardInstances || profile.cardInstances || {}) };
   profile.nextCardUid = Number(profile.lastSave.nextCardUid || profile.nextCardUid || 1);
@@ -1845,6 +1932,7 @@ document.getElementById("continueBtn").addEventListener("click", () => {
     addLog("已读取存档，进入游戏。");
   }
   enterGame();
+  if (!profile.introSeen) playOpeningCutscene();
 });
 document.getElementById("newGameBtn").addEventListener("click", () => {
   localStorage.removeItem(SAVE_KEY);
@@ -1852,6 +1940,7 @@ document.getElementById("newGameBtn").addEventListener("click", () => {
   saveProfile();
   addLog("已创建新游戏。");
   enterGame();
+  playOpeningCutscene();
 });
 document.getElementById("saveBtn").addEventListener("click", () => {
   profile.lastSave = {
@@ -1866,6 +1955,7 @@ document.getElementById("saveBtn").addEventListener("click", () => {
     defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
     enemyRespawnAt: { ...(profile.enemyRespawnAt || {}) },
     clearedNpcs: { ...(profile.clearedNpcs || {}) },
+    introSeen: profile.introSeen,
     wallet: profile.wallet,
     cards: { ...(profile.cards || {}) },
     galladonJoined: profile.galladonJoined,
@@ -1897,6 +1987,7 @@ window.addEventListener("keydown", (e) => {
   if (!document.getElementById("cardsModal").classList.contains("hidden")) return;
   if (!document.getElementById("teamModal").classList.contains("hidden")) return;
   if (!document.getElementById("saveModal").classList.contains("hidden")) return;
+  if (worldLocked) return;
   if (inEncounterBattle) return;
   const key = e.key.toLowerCase();
   const isInteract = e.code === "KeyZ" || key === "z";
