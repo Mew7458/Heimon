@@ -156,6 +156,7 @@ let selectedPackId = "man_for_you";
 let openingState = null;
 let inEncounterBattle = false;
 let gameEntered = false;
+let dialogueQueue = [];
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -189,7 +190,12 @@ function defaultProfile() {
     lastFreePackDate: null,
     map: { id: "Cave1-1", x: 5, y: 6 },
     facing: "down",
+    cardLevels: {},
+    cardRanks: {},
+    cardDamageTypes: {},
+    teamSlots: ["Man", null, "Dandi", "Cat", "Brig", "Cat"],
     defeatedEnemies: {},
+    clearedNpcs: {},
     galladonJoined: false,
     lastSave: null,
     enemyState: {}
@@ -207,7 +213,12 @@ function loadProfile() {
       lastFreePackDate: parsed.lastFreePackDate || null,
       map: parsed.map || { id: "Cave1-1", x: 5, y: 6 },
       facing: parsed.facing || "down",
+      cardLevels: parsed.cardLevels || {},
+      cardRanks: parsed.cardRanks || {},
+      cardDamageTypes: parsed.cardDamageTypes || {},
+      teamSlots: Array.isArray(parsed.teamSlots) && parsed.teamSlots.length === 6 ? parsed.teamSlots : ["Man", null, "Dandi", "Cat", "Brig", "Cat"],
       defeatedEnemies: parsed.defeatedEnemies || {},
+      clearedNpcs: parsed.clearedNpcs || {},
       galladonJoined: !!parsed.galladonJoined,
       lastSave: parsed.lastSave || null,
       enemyState: parsed.enemyState || {}
@@ -1059,6 +1070,11 @@ function enemyAtPosition(mapId, x, y) {
   return enemies.find(enemy => enemy.x === x && enemy.y === y);
 }
 
+function getActiveNpcs(mapId) {
+  const map = MAPS[mapId];
+  return (map.npcs || []).filter(npc => !profile.clearedNpcs?.[`${mapId}:${npc.id}`]);
+}
+
 function getActiveEnemies(mapId) {
   initEnemyState(mapId);
   const map = MAPS[mapId];
@@ -1089,7 +1105,7 @@ function moveEnemiesRandom(mapId) {
     const ny = Math.max(1, Math.min(map.height, enemy.y + pick.y));
     const key = `${nx},${ny}`;
     if (isWall(map, nx, ny)) return;
-    if (map.npcs?.some(n => n.x === nx && n.y === ny)) return;
+    if (getActiveNpcs(mapId).some(n => n.x === nx && n.y === ny)) return;
     if (occupied.has(key) && key !== `${enemy.x},${enemy.y}`) return;
     occupied.delete(`${enemy.x},${enemy.y}`);
     occupied.add(key);
@@ -1145,7 +1161,7 @@ function renderWorldMap() {
         if (isWall(map, x, y)) cell.classList.add("wall");
         if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
         if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
-        if (map.npcs?.some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
+        if (getActiveNpcs(profile.map.id).some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
         if (profile.map.x === x && profile.map.y === y) {
           cell.classList.add("player", `facing-${profile.facing || "down"}`);
         }
@@ -1193,7 +1209,7 @@ function getFrontPosition() {
 
 function getFrontNpc(map) {
   const front = getFrontPosition();
-  return map.npcs?.find(n => n.x === front.x && n.y === front.y) || null;
+  return getActiveNpcs(profile.map.id).find(n => n.x === front.x && n.y === front.y) || null;
 }
 
 function tryMovePlayer(dx, dy) {
@@ -1209,7 +1225,7 @@ function tryMovePlayer(dx, dy) {
     renderMap();
     return;
   }
-  if (map.npcs?.some(n => n.x === nx && n.y === ny)) {
+  if (getActiveNpcs(profile.map.id).some(n => n.x === nx && n.y === ny)) {
     renderMap();
     return;
   }
@@ -1245,20 +1261,27 @@ function interactWithNearbyNpc() {
   const map = MAPS[profile.map.id];
   const npc = getFrontNpc(map);
   if (npc) {
+    const messages = [];
     if (npc.id === "galladon") {
-      addLog("你与 Galladon 互动。");
+      messages.push("你与 Galladon 对话。");
       if (!profile.galladonJoined) {
         profile.galladonJoined = true;
         profile.cards.Galladon = (profile.cards.Galladon || 0) + 1;
-        addLog("*Galladon Has Joined the Party");
+        messages.push("*Galladon Has Joined the Party");
       }
+      profile.clearedNpcs[`${profile.map.id}:${npc.id}`] = true;
     }
-    if (npc.id === "dew") addLog("露水恢复了你的队伍生命。");
+    if (npc.id === "dew") {
+      messages.push("露水恢复了你的队伍生命。");
+      profile.clearedNpcs[`${profile.map.id}:${npc.id}`] = true;
+    }
+    if (messages.length) showDialogue(messages);
     saveProfile();
+    renderMap();
     renderSaveSummary();
     return;
   }
-  addLog("你面前没有可互动单位（先调整朝向再按Z）。");
+  showDialogue(["你面前没有可互动单位（先调整朝向再按Z）。"]);
 }
 
 function startEncounterBattle() {
@@ -1279,6 +1302,124 @@ function renderSaveSummary() {
 Galladon入队: ${profile.galladonJoined ? "是" : "否"}`;
 }
 
+function cardLevel(cardName) {
+  const raw = Number(profile.cardLevels?.[cardName] || 1);
+  return Math.max(1, Math.min(MAX_LEVEL, Math.floor(raw)));
+}
+
+function cardRank(cardName) {
+  const raw = Number(profile.cardRanks?.[cardName] || 0);
+  return Math.max(0, Math.min(7, Math.floor(raw)));
+}
+
+function cardStatsWithRank(cardName) {
+  const base = CARDS[cardName];
+  if (!base) return null;
+  const lvl = cardLevel(cardName);
+  const rank = cardRank(cardName);
+  const grown = computeStats(base.baseStats, lvl);
+  return {
+    level: lvl,
+    rank,
+    stats: {
+      HP: grown.HP + rank,
+      PO: grown.PO + rank,
+      Def: grown.Def + rank,
+      MO: grown.MO + rank,
+      MR: grown.MR + rank,
+      Spd: grown.Spd + rank
+    }
+  };
+}
+
+function ensureCardDamageTypes(cardName) {
+  if (!profile.cardDamageTypes[cardName]) {
+    const fallback = CARDS[cardName]?.types?.[0] || "Normal";
+    profile.cardDamageTypes[cardName] = { po: fallback, mo: fallback };
+  }
+}
+
+function renderCardsModal() {
+  const list = document.getElementById("cardsOwnedList");
+  const details = document.getElementById("cardDetails");
+  if (!list || !details) return;
+  list.innerHTML = "";
+  const entries = Object.entries(profile.cards || {}).filter(([, qty]) => qty > 0).sort((a, b) => a[0].localeCompare(b[0]));
+  if (!entries.length) {
+    details.textContent = "你还没有拥有任何卡牌。";
+    return;
+  }
+  entries.forEach(([cardName, qty], idx) => {
+    const btn = document.createElement("button");
+    btn.className = "owned-card-btn";
+    btn.textContent = `${cardName} ×${qty}`;
+    btn.addEventListener("click", () => {
+      const info = CARDS[cardName];
+      const grown = cardStatsWithRank(cardName);
+      details.textContent = `${cardName}\nType: ${info.types.join(" / ")}\nAbility: ${info.ability}\nLv.${grown.level}  Rank ${grown.rank}/7\nHP ${grown.stats.HP} | PO ${grown.stats.PO} | Def ${grown.stats.Def} | MO ${grown.stats.MO} | MR ${grown.stats.MR} | Spd ${grown.stats.Spd}\n\n成长规则：Lv1基础值 + 固定公式重算，不使用随机成长。\nDef/MR为软上限减伤，TD无视减伤。`;
+    });
+    list.appendChild(btn);
+    if (idx === 0) btn.click();
+  });
+}
+
+function renderTeamModal() {
+  const root = document.getElementById("teamEditor");
+  if (!root) return;
+  root.innerHTML = "";
+  const labels = ["前排-左", "前排-中", "前排-右", "后排-左", "后排-中", "后排-右"];
+  const ownedCards = Object.entries(profile.cards || {}).filter(([, qty]) => qty > 0).map(([name]) => name).sort((a, b) => a.localeCompare(b));
+  labels.forEach((label, idx) => {
+    const wrap = document.createElement("div");
+    wrap.className = "team-slot";
+    const slotCard = profile.teamSlots[idx] || "";
+    wrap.innerHTML = `<b>${label}</b>`;
+    const cardSel = document.createElement("select");
+    cardSel.innerHTML = `<option value="">(空位)</option>${ownedCards.map(name => `<option value="${name}">${name}</option>`).join("")}`;
+    cardSel.value = slotCard;
+    const poSel = document.createElement("select");
+    const moSel = document.createElement("select");
+    const updateDamageTypeSelect = () => {
+      const card = cardSel.value;
+      poSel.innerHTML = "";
+      moSel.innerHTML = "";
+      if (!card) return;
+      ensureCardDamageTypes(card);
+      const types = CARDS[card].types || ["Normal"];
+      types.forEach(t => {
+        poSel.innerHTML += `<option value="${t}">PO Type: ${t}</option>`;
+        moSel.innerHTML += `<option value="${t}">MO Type: ${t}</option>`;
+      });
+      poSel.value = profile.cardDamageTypes[card].po;
+      moSel.value = profile.cardDamageTypes[card].mo;
+    };
+    cardSel.addEventListener("change", () => {
+      profile.teamSlots[idx] = cardSel.value || null;
+      updateDamageTypeSelect();
+      saveProfile();
+    });
+    poSel.addEventListener("change", () => {
+      const card = cardSel.value;
+      if (!card) return;
+      ensureCardDamageTypes(card);
+      profile.cardDamageTypes[card].po = poSel.value;
+      saveProfile();
+    });
+    moSel.addEventListener("change", () => {
+      const card = cardSel.value;
+      if (!card) return;
+      ensureCardDamageTypes(card);
+      profile.cardDamageTypes[card].mo = moSel.value;
+      saveProfile();
+    });
+    updateDamageTypeSelect();
+    wrap.appendChild(cardSel);
+    wrap.appendChild(poSel);
+    wrap.appendChild(moSel);
+    root.appendChild(wrap);
+  });
+}
+
 function enterGame() {
   gameEntered = true;
   document.getElementById("saveModal").classList.add("hidden");
@@ -1287,6 +1428,29 @@ function enterGame() {
   renderWalletBadge();
   renderMap();
   renderSaveSummary();
+}
+
+function showDialogue(messages) {
+  dialogueQueue = Array.isArray(messages) ? [...messages] : [String(messages)];
+  if (!dialogueQueue.length) return;
+  const overlay = document.getElementById("dialogueOverlay");
+  const text = document.getElementById("dialogueText");
+  text.textContent = dialogueQueue[0];
+  overlay.classList.remove("hidden");
+}
+
+function advanceDialogue() {
+  if (!dialogueQueue.length) return false;
+  dialogueQueue.shift();
+  const overlay = document.getElementById("dialogueOverlay");
+  const text = document.getElementById("dialogueText");
+  if (!dialogueQueue.length) {
+    overlay.classList.add("hidden");
+    text.textContent = "";
+    return true;
+  }
+  text.textContent = dialogueQueue[0];
+  return true;
 }
 
 function setSaveModalMode(mode) {
@@ -1311,7 +1475,14 @@ function applyLastSaveToProfile() {
   if (!profile.lastSave) return false;
   profile.map = { ...profile.lastSave.map };
   profile.facing = profile.lastSave.facing || profile.facing || "down";
+  profile.cardLevels = { ...(profile.lastSave.cardLevels || profile.cardLevels || {}) };
+  profile.cardRanks = { ...(profile.lastSave.cardRanks || profile.cardRanks || {}) };
+  profile.cardDamageTypes = { ...(profile.lastSave.cardDamageTypes || profile.cardDamageTypes || {}) };
+  profile.teamSlots = Array.isArray(profile.lastSave.teamSlots) && profile.lastSave.teamSlots.length === 6
+    ? [...profile.lastSave.teamSlots]
+    : [...(profile.teamSlots || ["Man", null, "Dandi", "Cat", "Brig", "Cat"])];
   profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
+  profile.clearedNpcs = { ...(profile.lastSave.clearedNpcs || profile.clearedNpcs || {}) };
   profile.wallet = profile.lastSave.wallet;
   profile.cards = { ...profile.lastSave.cards };
   profile.galladonJoined = !!profile.lastSave.galladonJoined;
@@ -1423,10 +1594,24 @@ document.getElementById("packBtn").addEventListener("click", () => {
   document.getElementById("packModal").classList.remove("hidden");
   renderPackModal();
 });
+document.getElementById("cardsBtn").addEventListener("click", () => {
+  document.getElementById("cardsModal").classList.remove("hidden");
+  renderCardsModal();
+});
+document.getElementById("teamBtn").addEventListener("click", () => {
+  document.getElementById("teamModal").classList.remove("hidden");
+  renderTeamModal();
+});
 document.getElementById("saveMenuBtn").addEventListener("click", () => {
   setSaveModalMode("menu");
   renderSaveSummary();
   document.getElementById("saveModal").classList.remove("hidden");
+});
+document.getElementById("cardsCloseBtn").addEventListener("click", () => {
+  document.getElementById("cardsModal").classList.add("hidden");
+});
+document.getElementById("teamCloseBtn").addEventListener("click", () => {
+  document.getElementById("teamModal").classList.add("hidden");
 });
 document.getElementById("saveCloseBtn").addEventListener("click", () => {
   document.getElementById("saveModal").classList.add("hidden");
@@ -1457,6 +1642,9 @@ document.getElementById("rewardCard").addEventListener("click", () => {
     showNextRewardCard();
   }, 280);
 });
+document.getElementById("dialogueOverlay").addEventListener("click", () => {
+  advanceDialogue();
+});
 
 document.getElementById("startBtn").addEventListener("click", () => {
   document.getElementById("startScreen").classList.add("hidden");
@@ -1484,7 +1672,12 @@ document.getElementById("saveBtn").addEventListener("click", () => {
   profile.lastSave = {
     map: { ...profile.map },
     facing: profile.facing,
+    cardLevels: { ...(profile.cardLevels || {}) },
+    cardRanks: { ...(profile.cardRanks || {}) },
+    cardDamageTypes: { ...(profile.cardDamageTypes || {}) },
+    teamSlots: [...(profile.teamSlots || ["Man", null, "Dandi", "Cat", "Brig", "Cat"])],
     defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
+    clearedNpcs: { ...(profile.clearedNpcs || {}) },
     wallet: profile.wallet,
     cards: { ...(profile.cards || {}) },
     galladonJoined: profile.galladonJoined,
@@ -1504,7 +1697,17 @@ document.getElementById("loadBtn").addEventListener("click", () => {
 });
 window.addEventListener("keydown", (e) => {
   if (!gameEntered) return;
+  if (!document.getElementById("dialogueOverlay").classList.contains("hidden")) {
+    const key = e.key.toLowerCase();
+    if (e.code === "KeyZ" || key === "z" || key === "enter" || key === " ") {
+      e.preventDefault();
+      advanceDialogue();
+    }
+    return;
+  }
   if (!document.getElementById("packModal").classList.contains("hidden")) return;
+  if (!document.getElementById("cardsModal").classList.contains("hidden")) return;
+  if (!document.getElementById("teamModal").classList.contains("hidden")) return;
   if (!document.getElementById("saveModal").classList.contains("hidden")) return;
   const key = e.key.toLowerCase();
   const isInteract = e.code === "KeyZ" || key === "z";

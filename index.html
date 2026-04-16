@@ -23,8 +23,8 @@
 
   <aside id="sidePanel" class="side-panel">
     <button>Base</button>
-    <button>Cards</button>
-    <button>Team</button>
+    <button id="cardsBtn">Cards</button>
+    <button id="teamBtn">Team</button>
     <button>Bag</button>
     <button id="packBtn">Pack</button>
     <button id="saveMenuBtn">Save</button>
@@ -136,6 +136,37 @@
         <button id="saveBtn">Save</button>
         <button id="loadBtn">Load</button>
       </div>
+    </div>
+  </section>
+
+  <section id="cardsModal" class="modal hidden">
+    <div class="modal-card large">
+      <div class="modal-head">
+        <h3>Cards</h3>
+        <button id="cardsCloseBtn">✕</button>
+      </div>
+      <div class="cards-layout">
+        <div id="cardsOwnedList" class="cards-owned-list"></div>
+        <div id="cardDetails" class="card-details">请选择左侧卡牌查看详情。</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="teamModal" class="modal hidden">
+    <div class="modal-card large">
+      <div class="modal-head">
+        <h3>Team</h3>
+        <button id="teamCloseBtn">✕</button>
+      </div>
+      <div id="teamEditor" class="team-editor"></div>
+      <div class="team-footnote">前排: 左/中/右；后排: 左/中/右。每格可配置该单位 PO/MO 的伤害类型。</div>
+    </div>
+  </section>
+
+  <section id="dialogueOverlay" class="dialogue-overlay hidden" role="dialog" aria-live="polite">
+    <div id="dialogueBox" class="dialogue-box">
+      <div id="dialogueText" class="dialogue-text"></div>
+      <small>按 Z 或点击继续</small>
     </div>
   </section>
 
