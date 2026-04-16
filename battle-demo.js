@@ -1045,10 +1045,7 @@ function renderMap() {
   if (!minimap || !info) return;
   minimap.innerHTML = "";
   const map = MAPS[profile.map.id];
-  const viewW = 15;
-  const viewH = 11;
-  const startX = Math.max(1, Math.min(profile.map.x - Math.floor(viewW / 2), map.width - viewW + 1));
-  const startY = Math.max(1, Math.min(profile.map.y - Math.floor(viewH / 2), map.height - viewH + 1));
+  const { viewW, viewH, startX, startY } = getMapViewport(map);
   for (let y = startY; y < startY + viewH; y += 1) {
     for (let x = startX; x < startX + viewW; x += 1) {
       const cell = document.createElement("div");
@@ -1073,20 +1070,33 @@ function renderWorldMap() {
   const worldMap = document.getElementById("worldMap");
   if (!worldMap) return;
   const map = MAPS[profile.map.id];
+  const { viewW, viewH, startX, startY } = getMapViewport(map);
   worldMap.innerHTML = "";
-  worldMap.style.gridTemplateColumns = `repeat(${map.width}, minmax(16px, 1fr))`;
-  for (let y = 1; y <= map.height; y += 1) {
-    for (let x = 1; x <= map.width; x += 1) {
+  worldMap.style.gridTemplateColumns = `repeat(${viewW}, minmax(22px, 1fr))`;
+  for (let y = startY; y < startY + viewH; y += 1) {
+    for (let x = startX; x < startX + viewW; x += 1) {
       const cell = document.createElement("div");
       cell.className = "world-cell";
-      if (isWall(map, x, y)) cell.classList.add("wall");
-      if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
-      if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
-      if (map.npcs?.some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
-      if (profile.map.x === x && profile.map.y === y) cell.classList.add("player");
+      if (x > map.width || y > map.height) {
+        cell.classList.add("wall");
+      } else {
+        if (isWall(map, x, y)) cell.classList.add("wall");
+        if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
+        if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
+        if (map.npcs?.some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
+        if (profile.map.x === x && profile.map.y === y) cell.classList.add("player");
+      }
       worldMap.appendChild(cell);
     }
   }
+}
+
+function getMapViewport(map) {
+  const viewW = 15;
+  const viewH = 11;
+  const startX = Math.max(1, Math.min(profile.map.x - Math.floor(viewW / 2), map.width - viewW + 1));
+  const startY = Math.max(1, Math.min(profile.map.y - Math.floor(viewH / 2), map.height - viewH + 1));
+  return { viewW, viewH, startX, startY };
 }
 
 function tryMovePlayer(dx, dy) {
@@ -1095,6 +1105,7 @@ function tryMovePlayer(dx, dy) {
   const ny = profile.map.y + dy;
   if (nx < 1 || nx > map.width || ny < 1 || ny > map.height) return;
   if (isWall(map, nx, ny)) return;
+  if (map.npcs?.some(n => n.x === nx && n.y === ny)) return;
   profile.map.x = nx;
   profile.map.y = ny;
   const enemy = enemyAtPosition(profile.map.id, nx, ny);
@@ -1104,9 +1115,6 @@ function tryMovePlayer(dx, dy) {
     addLog(`遭遇 Man 并胜利，获得 10G。`);
     startEncounterBattle();
   }
-  const npc = map.npcs?.find(n => n.x === nx && n.y === ny);
-  if (npc?.id === "galladon") addLog("你与 Galladon 互动。");
-  if (npc?.id === "dew") addLog("露水恢复了你的队伍生命。");
   const exit = map.exits.find(e => e.x === nx && e.y === ny);
   if (exit && exit.to) {
     profile.map.id = exit.to;
@@ -1117,6 +1125,21 @@ function tryMovePlayer(dx, dy) {
   saveProfile();
   renderWalletBadge();
   renderMap();
+}
+
+function interactWithNearbyNpc() {
+  const map = MAPS[profile.map.id];
+  const offsets = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
+  for (const offset of offsets) {
+    const tx = profile.map.x + offset.x;
+    const ty = profile.map.y + offset.y;
+    const npc = map.npcs?.find(n => n.x === tx && n.y === ty);
+    if (!npc) continue;
+    if (npc.id === "galladon") addLog("你与 Galladon 互动。");
+    if (npc.id === "dew") addLog("露水恢复了你的队伍生命。");
+    return;
+  }
+  addLog("附近没有可互动单位。");
 }
 
 function startEncounterBattle() {
@@ -1296,6 +1319,10 @@ window.addEventListener("keydown", (e) => {
   if (!document.getElementById("packModal").classList.contains("hidden")) return;
   if (!document.getElementById("saveModal").classList.contains("hidden")) return;
   const key = e.key.toLowerCase();
+  if (key === "z") {
+    interactWithNearbyNpc();
+    return;
+  }
   if (key === "w") tryMovePlayer(0, -1);
   if (key === "s") tryMovePlayer(0, 1);
   if (key === "a") tryMovePlayer(-1, 0);
