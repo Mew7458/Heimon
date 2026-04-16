@@ -121,13 +121,15 @@ const MAPS = {
     width: 15, height: 11, spawn: { x: 5, y: 6 },
     exits: [{ x: 15, y: 6, to: "Cave1-2", spawn: { x: 1, y: 6 } }],
     walls: [],
-    enemies: []
+    enemies: [],
+    npcs: []
   },
   "Cave1-2": {
     width: 15, height: 11, spawn: { x: 6, y: 1 },
     exits: [{ x: 15, y: 6, to: "Cave1-3", spawn: { x: 1, y: 6 } }],
     walls: [{ x1: 7, y1: 5, x2: 9, y2: 7 }],
-    enemies: []
+    enemies: [],
+    npcs: [{ id: "galladon", x: 12, y: 6 }, { id: "dew", x: 14, y: 2 }]
   },
   "Cave1-3": {
     width: 10, height: 28, spawn: { x: 6, y: 1 },
@@ -138,7 +140,8 @@ const MAPS = {
       { id: "m2", x: 7, y: 17 },
       { id: "m3", x: 3, y: 20 },
       { id: "m4", x: 8, y: 24 }
-    ]
+    ],
+    npcs: []
   }
 };
 
@@ -1056,6 +1059,27 @@ function renderMap() {
     }
   }
   info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y})`;
+  renderWorldMap();
+}
+
+function renderWorldMap() {
+  const worldMap = document.getElementById("worldMap");
+  if (!worldMap) return;
+  const map = MAPS[profile.map.id];
+  worldMap.innerHTML = "";
+  worldMap.style.gridTemplateColumns = `repeat(${map.width}, minmax(16px, 1fr))`;
+  for (let y = 1; y <= map.height; y += 1) {
+    for (let x = 1; x <= map.width; x += 1) {
+      const cell = document.createElement("div");
+      cell.className = "world-cell";
+      if (isWall(map, x, y)) cell.classList.add("wall");
+      if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
+      if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
+      if (map.npcs?.some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
+      if (profile.map.x === x && profile.map.y === y) cell.classList.add("player");
+      worldMap.appendChild(cell);
+    }
+  }
 }
 
 function tryMovePlayer(dx, dy) {
@@ -1072,6 +1096,9 @@ function tryMovePlayer(dx, dy) {
     profile.wallet += 10;
     addLog(`遭遇 Man 并胜利，获得 10G。`);
   }
+  const npc = map.npcs?.find(n => n.x === nx && n.y === ny);
+  if (npc?.id === "galladon") addLog("你与 Galladon 互动。");
+  if (npc?.id === "dew") addLog("露水恢复了你的队伍生命。");
   const exit = map.exits.find(e => e.x === nx && e.y === ny);
   if (exit && exit.to) {
     profile.map.id = exit.to;

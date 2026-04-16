@@ -48,7 +48,13 @@
     </section>
 
     <section class="battlefield">
-      <h2>Battlefield (Vertical Face-off)</h2>
+      <h2>World Map</h2>
+      <div id="worldMap" class="world-map"></div>
+      <small>WASD移动。绿色=玩家，红色=敌人，蓝色=NPC，黄色=出口，灰色=障碍。</small>
+    </section>
+
+    <section id="battleSim" class="battlefield hidden">
+      <h2>Battlefield (Logic kept, simulator UI hidden)</h2>
       <div>
         <h3>玩家2</h3>
         <div id="enemyGrid" class="team-board"></div>
@@ -60,7 +66,7 @@
       </div>
     </section>
 
-    <section class="controls">
+    <section class="controls hidden">
       <button id="poBtn">PO</button>
       <button id="moBtn">MO</button>
       <button id="skillBtn">Skill</button>
@@ -81,7 +87,7 @@
       </div>
     </section>
 
-    <section>
+    <section class="hidden">
       <h3>Battle Log</h3>
       <div id="log" class="log"></div>
     </section>

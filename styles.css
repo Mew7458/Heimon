@@ -96,6 +96,26 @@ main { padding: 16px; max-width: 900px; margin: 0 auto; }
   gap: 4px;
   margin-top: 4px;
 }
+.world-map {
+  border: 1px solid #557;
+  border-radius: 8px;
+  min-height: 220px;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  background: #141f35;
+  margin-bottom: 6px;
+}
+.world-cell {
+  background: #1e2c49;
+  border-radius: 3px;
+  min-height: 18px;
+}
+.world-cell.wall { background: #59607a; }
+.world-cell.player { background: #78ffd6; }
+.world-cell.enemy { background: #ff8f8f; }
+.world-cell.exit { background: #ffd57a; }
+.world-cell.npc { background: #7aa2ff; }
 .battlefield {
   background: #111c31;
   border: 1px solid #2f416b;
