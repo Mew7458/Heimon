@@ -92,6 +92,28 @@ main { padding: 16px; max-width: 900px; margin: 0 auto; }
 .mini-cell.player { background: #78ffd6; }
 .mini-cell.enemy { background: #ff8f8f; }
 .mini-cell.exit { background: #ffd57a; }
+.mini-cell.player,
+.world-cell.player {
+  position: relative;
+}
+.mini-cell.player::after,
+.world-cell.player::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #0c2842;
+  font-weight: 700;
+}
+.mini-cell.player.facing-up::after,
+.world-cell.player.facing-up::after { content: "↑"; }
+.mini-cell.player.facing-down::after,
+.world-cell.player.facing-down::after { content: "↓"; }
+.mini-cell.player.facing-left::after,
+.world-cell.player.facing-left::after { content: "←"; }
+.mini-cell.player.facing-right::after,
+.world-cell.player.facing-right::after { content: "→"; }
 .map-actions {
   display: flex;
   gap: 4px;

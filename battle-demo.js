@@ -188,6 +188,7 @@ function defaultProfile() {
     cards: {},
     lastFreePackDate: null,
     map: { id: "Cave1-1", x: 5, y: 6 },
+    facing: "down",
     defeatedEnemies: {},
     galladonJoined: false,
     lastSave: null,
@@ -205,6 +206,7 @@ function loadProfile() {
       cards: parsed.cards || {},
       lastFreePackDate: parsed.lastFreePackDate || null,
       map: parsed.map || { id: "Cave1-1", x: 5, y: 6 },
+      facing: parsed.facing || "down",
       defeatedEnemies: parsed.defeatedEnemies || {},
       galladonJoined: !!parsed.galladonJoined,
       lastSave: parsed.lastSave || null,
@@ -1112,12 +1114,14 @@ function renderMap() {
         if (isWall(map, x, y)) cell.classList.add("wall");
         if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
         if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
-        if (profile.map.x === x && profile.map.y === y) cell.classList.add("player");
+        if (profile.map.x === x && profile.map.y === y) {
+          cell.classList.add("player", `facing-${profile.facing || "down"}`);
+        }
       }
       minimap.appendChild(cell);
     }
   }
-  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y})`;
+  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y}) 朝向:${facingLabel(profile.facing)}`;
   renderWorldMap();
   renderSaveSummary();
 }
@@ -1140,7 +1144,9 @@ function renderWorldMap() {
         if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
         if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
         if (map.npcs?.some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
-        if (profile.map.x === x && profile.map.y === y) cell.classList.add("player");
+        if (profile.map.x === x && profile.map.y === y) {
+          cell.classList.add("player", `facing-${profile.facing || "down"}`);
+        }
       }
       worldMap.appendChild(cell);
     }
@@ -1155,13 +1161,46 @@ function getMapViewport(map) {
   return { viewW, viewH, startX, startY };
 }
 
+function updateFacingByDelta(dx, dy) {
+  if (dx === 1) profile.facing = "right";
+  if (dx === -1) profile.facing = "left";
+  if (dy === 1) profile.facing = "down";
+  if (dy === -1) profile.facing = "up";
+}
+
+function facingLabel(facing) {
+  if (facing === "up") return "↑";
+  if (facing === "down") return "↓";
+  if (facing === "left") return "←";
+  if (facing === "right") return "→";
+  return "↓";
+}
+
+function facingOffset(facing) {
+  if (facing === "up") return { x: 0, y: -1 };
+  if (facing === "down") return { x: 0, y: 1 };
+  if (facing === "left") return { x: -1, y: 0 };
+  if (facing === "right") return { x: 1, y: 0 };
+  return { x: 0, y: 1 };
+}
+
 function tryMovePlayer(dx, dy) {
   const map = MAPS[profile.map.id];
+  updateFacingByDelta(dx, dy);
   const nx = profile.map.x + dx;
   const ny = profile.map.y + dy;
-  if (nx < 1 || nx > map.width || ny < 1 || ny > map.height) return;
-  if (isWall(map, nx, ny)) return;
-  if (map.npcs?.some(n => n.x === nx && n.y === ny)) return;
+  if (nx < 1 || nx > map.width || ny < 1 || ny > map.height) {
+    renderMap();
+    return;
+  }
+  if (isWall(map, nx, ny)) {
+    renderMap();
+    return;
+  }
+  if (map.npcs?.some(n => n.x === nx && n.y === ny)) {
+    renderMap();
+    return;
+  }
   profile.map.x = nx;
   profile.map.y = ny;
   moveEnemiesRandom(profile.map.id);
@@ -1192,12 +1231,11 @@ function tryMovePlayer(dx, dy) {
 
 function interactWithNearbyNpc() {
   const map = MAPS[profile.map.id];
-  const offsets = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
-  for (const offset of offsets) {
-    const tx = profile.map.x + offset.x;
-    const ty = profile.map.y + offset.y;
-    const npc = map.npcs?.find(n => n.x === tx && n.y === ty);
-    if (!npc) continue;
+  const offset = facingOffset(profile.facing);
+  const tx = profile.map.x + offset.x;
+  const ty = profile.map.y + offset.y;
+  const npc = map.npcs?.find(n => n.x === tx && n.y === ty);
+  if (npc) {
     if (npc.id === "galladon") {
       addLog("你与 Galladon 互动。");
       if (!profile.galladonJoined) {
@@ -1211,7 +1249,7 @@ function interactWithNearbyNpc() {
     renderSaveSummary();
     return;
   }
-  addLog("附近没有可互动单位。");
+  addLog("你面前没有可互动单位（先调整朝向再按Z）。");
 }
 
 function startEncounterBattle() {
@@ -1262,6 +1300,7 @@ function setSaveModalMode(mode) {
 function applyLastSaveToProfile() {
   if (!profile.lastSave) return false;
   profile.map = { ...profile.lastSave.map };
+  profile.facing = profile.lastSave.facing || profile.facing || "down";
   profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
   profile.wallet = profile.lastSave.wallet;
   profile.cards = { ...profile.lastSave.cards };
@@ -1434,6 +1473,7 @@ document.getElementById("newGameBtn").addEventListener("click", () => {
 document.getElementById("saveBtn").addEventListener("click", () => {
   profile.lastSave = {
     map: { ...profile.map },
+    facing: profile.facing,
     defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
     wallet: profile.wallet,
     cards: { ...(profile.cards || {}) },
