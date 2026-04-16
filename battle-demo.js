@@ -163,6 +163,9 @@ let worldLocked = false;
 let dialogueResolve = null;
 let enemyMoveTicker = null;
 let isAnimatingMove = false;
+let actorFrame = null;
+let worldViewportInfo = null;
+const actorMotion = { player: null, enemies: {} };
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -1050,35 +1053,6 @@ function finalizeEncounterBattle(playerWon) {
   }, 450);
 }
 
-function syncTeamHpFromBattle() {
-  (state.player || []).forEach(unit => {
-    if (!unit?.instanceId) return;
-    const found = findCardInstanceById(unit.instanceId);
-    if (!found) return;
-    const list = profile.cardInstances[found.cardName] || [];
-    const ref = list.find(x => x.id === unit.instanceId);
-    if (!ref) return;
-    ref.currentHp = Math.max(1, Math.min(unit.stats.HP, unit.hp));
-  });
-  normalizeCardCounts();
-}
-
-function finalizeEncounterBattle(playerWon) {
-  syncTeamHpFromBattle();
-  if (playerWon && activeEncounter) {
-    const key = `${activeEncounter.mapId}:${activeEncounter.enemyId}`;
-    profile.enemyRespawnAt[key] = Date.now() + 30_000;
-    profile.wallet += 10;
-    addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
-  }
-  saveProfile();
-  renderWalletBadge();
-  renderMap();
-  setTimeout(() => {
-    if (inEncounterBattle && state.mode === "encounter" && state.ended) returnToMapFromBattle();
-  }, 450);
-}
-
 function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = "PO") {
   if (!unit) return `<div class="slot ${cls}"><div class="rowtag">${rowTag}</div><small>Empty</small></div>`;
   const hpPct = Math.max(0, Math.round((unit.hp / unit.stats.HP) * 100));
@@ -1299,6 +1273,7 @@ function renderWorldMap() {
   if (!worldMap) return;
   const map = MAPS[profile.map.id];
   const { viewW, viewH, startX, startY } = getMapViewport(map);
+  worldViewportInfo = { viewW, viewH, startX, startY };
   worldMap.innerHTML = "";
   worldMap.style.gridTemplateColumns = `repeat(${viewW}, minmax(22px, 1fr))`;
   for (let y = startY; y < startY + viewH; y += 1) {
@@ -1310,15 +1285,13 @@ function renderWorldMap() {
       } else {
         if (isWall(map, x, y)) cell.classList.add("wall");
         if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
-        if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
         if (getActiveNpcs(profile.map.id).some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
-        if (profile.map.x === x && profile.map.y === y) {
-          cell.classList.add("player", `facing-${profile.facing || "down"}`);
-        }
       }
       worldMap.appendChild(cell);
     }
   }
+  syncActorTargets();
+  ensureActorLoop();
 }
 
 function getMapViewport(map) {
@@ -1327,6 +1300,64 @@ function getMapViewport(map) {
   const startX = Math.max(1, Math.min(profile.map.x - Math.floor(viewW / 2), map.width - viewW + 1));
   const startY = Math.max(1, Math.min(profile.map.y - Math.floor(viewH / 2), map.height - viewH + 1));
   return { viewW, viewH, startX, startY };
+}
+
+function syncActorTargets() {
+  const enemies = getActiveEnemies(profile.map.id);
+  if (!actorMotion.player) actorMotion.player = { x: profile.map.x, y: profile.map.y, tx: profile.map.x, ty: profile.map.y };
+  actorMotion.player.tx = profile.map.x;
+  actorMotion.player.ty = profile.map.y;
+  const keep = new Set();
+  enemies.forEach(enemy => {
+    keep.add(enemy.id);
+    if (!actorMotion.enemies[enemy.id]) actorMotion.enemies[enemy.id] = { x: enemy.x, y: enemy.y, tx: enemy.x, ty: enemy.y };
+    actorMotion.enemies[enemy.id].tx = enemy.x;
+    actorMotion.enemies[enemy.id].ty = enemy.y;
+  });
+  Object.keys(actorMotion.enemies).forEach(id => {
+    if (!keep.has(id)) delete actorMotion.enemies[id];
+  });
+}
+
+function ensureActorLoop() {
+  if (actorFrame) return;
+  const step = () => {
+    actorFrame = requestAnimationFrame(step);
+    if (!worldViewportInfo || document.getElementById("worldSection")?.classList.contains("hidden")) return;
+    const smooth = (obj) => {
+      if (!obj) return;
+      obj.x += (obj.tx - obj.x) * 0.28;
+      obj.y += (obj.ty - obj.y) * 0.28;
+    };
+    smooth(actorMotion.player);
+    Object.values(actorMotion.enemies).forEach(smooth);
+    renderWorldActors();
+  };
+  actorFrame = requestAnimationFrame(step);
+}
+
+function renderWorldActors() {
+  const layer = document.getElementById("worldActors");
+  const worldMap = document.getElementById("worldMap");
+  if (!layer || !worldMap || !worldViewportInfo) return;
+  const mapStyle = getComputedStyle(worldMap);
+  const gap = parseFloat(mapStyle.gap || mapStyle.rowGap || "2") || 2;
+  const padL = parseFloat(mapStyle.paddingLeft || "8") || 8;
+  const padT = parseFloat(mapStyle.paddingTop || "8") || 8;
+  const cellW = (worldMap.clientWidth - padL * 2 - gap * (worldViewportInfo.viewW - 1)) / worldViewportInfo.viewW;
+  const cellH = (worldMap.clientHeight - padT * 2 - gap * (worldViewportInfo.viewH - 1)) / worldViewportInfo.viewH;
+  layer.innerHTML = "";
+  const put = (cls, x, y) => {
+    if (x < worldViewportInfo.startX || y < worldViewportInfo.startY) return;
+    if (x > worldViewportInfo.startX + worldViewportInfo.viewW - 1 || y > worldViewportInfo.startY + worldViewportInfo.viewH - 1) return;
+    const dot = document.createElement("div");
+    dot.className = `world-actor ${cls}`;
+    dot.style.left = `${padL + (x - worldViewportInfo.startX) * (cellW + gap) + cellW / 2}px`;
+    dot.style.top = `${padT + (y - worldViewportInfo.startY) * (cellH + gap) + cellH / 2}px`;
+    layer.appendChild(dot);
+  };
+  if (actorMotion.player) put("player", actorMotion.player.x, actorMotion.player.y);
+  Object.values(actorMotion.enemies).forEach(enemy => put("enemy", enemy.x, enemy.y));
 }
 
 function updateFacingByDelta(dx, dy) {
