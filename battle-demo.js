@@ -128,7 +128,7 @@ const MAPS = {
     width: 15, height: 11, spawn: { x: 6, y: 1 },
     exits: [
       { x: 1, y: 6, to: "Cave1-1", spawn: { x: 15, y: 6 } },
-      { x: 15, y: 6, to: "Cave1-3", spawn: { x: 1, y: 6 } }
+      { x: 15, y: 6, to: "Cave1-3", spawn: { x: 1, y: 6 }, requiresGalladon: true }
     ],
     walls: [{ x1: 7, y1: 5, x2: 9, y2: 7 }],
     enemies: [],
@@ -154,6 +154,7 @@ const MAPS = {
 let profile = loadProfile();
 let selectedPackId = "man_for_you";
 let openingState = null;
+let inEncounterBattle = false;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -183,17 +184,20 @@ function todayKey() {
 function loadProfile() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {} };
+    if (!raw) return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {}, galladonJoined: false, lastSave: null, enemyState: {} };
     const parsed = JSON.parse(raw);
     return {
       wallet: Number.isFinite(parsed.wallet) ? parsed.wallet : 1000,
       cards: parsed.cards || {},
       lastFreePackDate: parsed.lastFreePackDate || null,
       map: parsed.map || { id: "Cave1-1", x: 5, y: 6 },
-      defeatedEnemies: parsed.defeatedEnemies || {}
+      defeatedEnemies: parsed.defeatedEnemies || {},
+      galladonJoined: !!parsed.galladonJoined,
+      lastSave: parsed.lastSave || null,
+      enemyState: parsed.enemyState || {}
     };
   } catch {
-    return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {} };
+    return { wallet: 1000, cards: {}, lastFreePackDate: null, map: { id: "Cave1-1", x: 5, y: 6 }, defeatedEnemies: {}, galladonJoined: false, lastSave: null, enemyState: {} };
   }
 }
 
@@ -1035,8 +1039,46 @@ function isWall(map, x, y) {
 }
 
 function enemyAtPosition(mapId, x, y) {
+  const enemies = getActiveEnemies(mapId);
+  return enemies.find(enemy => enemy.x === x && enemy.y === y);
+}
+
+function getActiveEnemies(mapId) {
+  initEnemyState(mapId);
   const map = MAPS[mapId];
-  return map.enemies.find(enemy => enemy.x === x && enemy.y === y && !profile.defeatedEnemies[`${mapId}:${enemy.id}`]);
+  return map.enemies
+    .map(base => {
+      const pos = profile.enemyState[mapId]?.[base.id];
+      return { ...base, x: pos?.x ?? base.x, y: pos?.y ?? base.y };
+    })
+    .filter(enemy => !profile.defeatedEnemies[`${mapId}:${enemy.id}`]);
+}
+
+function initEnemyState(mapId) {
+  if (!profile.enemyState[mapId]) profile.enemyState[mapId] = {};
+  MAPS[mapId].enemies.forEach(enemy => {
+    if (!profile.enemyState[mapId][enemy.id]) profile.enemyState[mapId][enemy.id] = { x: enemy.x, y: enemy.y };
+  });
+}
+
+function moveEnemiesRandom(mapId) {
+  if (mapId !== "Cave1-3") return;
+  const map = MAPS[mapId];
+  const occupied = new Set();
+  getActiveEnemies(mapId).forEach(enemy => occupied.add(`${enemy.x},${enemy.y}`));
+  getActiveEnemies(mapId).forEach(enemy => {
+    const dirs = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+    const pick = dirs[Math.floor(Math.random() * dirs.length)];
+    const nx = Math.max(1, Math.min(map.width, enemy.x + pick.x));
+    const ny = Math.max(1, Math.min(map.height, enemy.y + pick.y));
+    const key = `${nx},${ny}`;
+    if (isWall(map, nx, ny)) return;
+    if (map.npcs?.some(n => n.x === nx && n.y === ny)) return;
+    if (occupied.has(key) && key !== `${enemy.x},${enemy.y}`) return;
+    occupied.delete(`${enemy.x},${enemy.y}`);
+    occupied.add(key);
+    profile.enemyState[mapId][enemy.id] = { x: nx, y: ny };
+  });
 }
 
 function renderMap() {
@@ -1108,6 +1150,7 @@ function tryMovePlayer(dx, dy) {
   if (map.npcs?.some(n => n.x === nx && n.y === ny)) return;
   profile.map.x = nx;
   profile.map.y = ny;
+  moveEnemiesRandom(profile.map.id);
   const enemy = enemyAtPosition(profile.map.id, nx, ny);
   if (enemy) {
     profile.defeatedEnemies[`${profile.map.id}:${enemy.id}`] = true;
@@ -1117,6 +1160,12 @@ function tryMovePlayer(dx, dy) {
   }
   const exit = map.exits.find(e => e.x === nx && e.y === ny);
   if (exit && exit.to) {
+    if (exit.requiresGalladon && !profile.galladonJoined) {
+      addLog("需要先与 Galladon 互动，才能离开该地图。");
+      saveProfile();
+      renderMap();
+      return;
+    }
     profile.map.id = exit.to;
     profile.map.x = exit.spawn.x;
     profile.map.y = exit.spawn.y;
@@ -1135,14 +1184,24 @@ function interactWithNearbyNpc() {
     const ty = profile.map.y + offset.y;
     const npc = map.npcs?.find(n => n.x === tx && n.y === ty);
     if (!npc) continue;
-    if (npc.id === "galladon") addLog("你与 Galladon 互动。");
+    if (npc.id === "galladon") {
+      addLog("你与 Galladon 互动。");
+      if (!profile.galladonJoined) {
+        profile.galladonJoined = true;
+        profile.cards.Galladon = (profile.cards.Galladon || 0) + 1;
+        addLog("*Galladon Has Joined the Party");
+      }
+    }
     if (npc.id === "dew") addLog("露水恢复了你的队伍生命。");
+    saveProfile();
+    renderSaveSummary();
     return;
   }
   addLog("附近没有可互动单位。");
 }
 
 function startEncounterBattle() {
+  inEncounterBattle = true;
   document.getElementById("battleSim")?.classList.remove("hidden");
   document.querySelector(".controls")?.classList.remove("hidden");
   document.getElementById("battleLogSection")?.classList.remove("hidden");
@@ -1155,7 +1214,8 @@ function renderSaveSummary() {
   el.textContent = `当前地图: ${profile.map.id} (${profile.map.x}, ${profile.map.y})
 钱包: ${profile.wallet}G
 已拥有卡牌种类: ${Object.keys(profile.cards || {}).length}
-已击败地图敌人: ${Object.keys(profile.defeatedEnemies || {}).length}`;
+已击败地图敌人: ${Object.keys(profile.defeatedEnemies || {}).length}
+Galladon入队: ${profile.galladonJoined ? "是" : "否"}`;
 }
 
 function applyRewards(rewards) {
@@ -1303,12 +1363,26 @@ document.getElementById("startBtn").addEventListener("click", () => {
   renderMap();
 });
 document.getElementById("saveBtn").addEventListener("click", () => {
+  profile.lastSave = {
+    map: { ...profile.map },
+    defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
+    wallet: profile.wallet,
+    cards: { ...(profile.cards || {}) },
+    galladonJoined: profile.galladonJoined
+  };
   saveProfile();
   renderSaveSummary();
   addLog("存档成功。");
 });
 document.getElementById("loadBtn").addEventListener("click", () => {
   profile = loadProfile();
+  if (profile.lastSave) {
+    profile.map = { ...profile.lastSave.map };
+    profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
+    profile.wallet = profile.lastSave.wallet;
+    profile.cards = { ...profile.lastSave.cards };
+    profile.galladonJoined = !!profile.lastSave.galladonJoined;
+  }
   renderWalletBadge();
   renderMap();
   renderSaveSummary();
