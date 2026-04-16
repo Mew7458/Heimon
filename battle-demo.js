@@ -333,6 +333,8 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
 }
 
 function buildPlayerBattleTeam() {
+  const validIds = new Set(allCardInstances().map(x => x.id));
+  profile.teamSlots = (profile.teamSlots || [null, null, null, null, null, null]).map(id => (id && validIds.has(id) ? id : null));
   return (profile.teamSlots || [null, null, null, null, null, null]).map((instanceId, i) => {
     if (!instanceId) return null;
     const inst = findCardInstanceById(instanceId);
@@ -342,7 +344,9 @@ function buildPlayerBattleTeam() {
       PO: typeCfg?.po,
       MO: typeCfg?.mo
     });
-    unit.hp = Math.max(1, Math.min(unit.stats.HP, inst.currentHp || unit.stats.HP));
+    const hpFromSave = Number(inst.currentHp);
+    if (Number.isFinite(hpFromSave) && hpFromSave <= 0) return null;
+    unit.hp = Math.max(1, Math.min(unit.stats.HP, Number.isFinite(hpFromSave) ? hpFromSave : unit.stats.HP));
     unit.instanceId = instanceId;
     return unit;
   });
@@ -1038,6 +1042,9 @@ function finalizeEncounterBattle(playerWon) {
   saveProfile();
   renderWalletBadge();
   renderMap();
+  setTimeout(() => {
+    if (inEncounterBattle && state.mode === "encounter" && state.ended) returnToMapFromBattle();
+  }, 450);
 }
 
 function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = "PO") {
