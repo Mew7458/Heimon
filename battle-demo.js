@@ -142,10 +142,10 @@ const MAPS = {
     ],
     walls: [],
     enemies: [
-      { id: "m1", x: 4, y: 13 },
-      { id: "m2", x: 7, y: 17 },
-      { id: "m3", x: 3, y: 20 },
-      { id: "m4", x: 8, y: 24 }
+      { id: "m1", type: "Man", x: 4, y: 13, facing: "down" },
+      { id: "m2", type: "Man", x: 7, y: 17, facing: "down" },
+      { id: "m3", type: "Man", x: 3, y: 20, facing: "down" },
+      { id: "m4", type: "Man", x: 8, y: 24, facing: "down" }
     ],
     npcs: []
   }
@@ -166,6 +166,8 @@ let isAnimatingMove = false;
 let actorFrame = null;
 let worldViewportInfo = null;
 const actorMotion = { player: null, enemies: {} };
+const enemySeenMarks = {};
+const enemyMoveRuntime = {};
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -1186,7 +1188,7 @@ function getActiveEnemies(mapId) {
   return map.enemies
     .map(base => {
       const pos = profile.enemyState[mapId]?.[base.id];
-      return { ...base, x: pos?.x ?? base.x, y: pos?.y ?? base.y };
+      return { ...base, x: pos?.x ?? base.x, y: pos?.y ?? base.y, facing: pos?.facing || base.facing || "down" };
     })
     .filter(enemy => {
       const key = `${mapId}:${enemy.id}`;
@@ -1203,27 +1205,137 @@ function getActiveEnemies(mapId) {
 function initEnemyState(mapId) {
   if (!profile.enemyState[mapId]) profile.enemyState[mapId] = {};
   MAPS[mapId].enemies.forEach(enemy => {
-    if (!profile.enemyState[mapId][enemy.id]) profile.enemyState[mapId][enemy.id] = { x: enemy.x, y: enemy.y };
+    if (!profile.enemyState[mapId][enemy.id]) {
+      profile.enemyState[mapId][enemy.id] = { x: enemy.x, y: enemy.y, facing: enemy.facing || "down" };
+      return;
+    }
+    if (!profile.enemyState[mapId][enemy.id].facing) {
+      profile.enemyState[mapId][enemy.id].facing = enemy.facing || "down";
+    }
   });
 }
 
-function moveEnemiesRandom(mapId) {
-  if (mapId !== "Cave1-3") return;
+function enemySeenKey(mapId, enemyId) {
+  return `${mapId}:${enemyId}`;
+}
+
+function pruneSeenMarks(now = Date.now()) {
+  Object.keys(enemySeenMarks).forEach(key => {
+    if ((enemySeenMarks[key] || 0) <= now) delete enemySeenMarks[key];
+  });
+}
+
+function clearSeenMarks(mapId = null) {
+  Object.keys(enemySeenMarks).forEach(key => {
+    if (!mapId || key.startsWith(`${mapId}:`)) delete enemySeenMarks[key];
+  });
+}
+
+function resetEnemyMoveRuntime() {
+  Object.keys(enemyMoveRuntime).forEach(mapId => delete enemyMoveRuntime[mapId]);
+}
+
+function isPlayerSeen(now = Date.now()) {
+  pruneSeenMarks(now);
+  return Object.values(enemySeenMarks).some(ts => ts > now);
+}
+
+function getSeenRemainingMs(now = Date.now()) {
+  pruneSeenMarks(now);
+  const remain = Object.values(enemySeenMarks).reduce((max, ts) => Math.max(max, ts - now), 0);
+  return Math.max(0, remain);
+}
+
+function hasLineOfSightToPlayer(enemy, mapId) {
   const map = MAPS[mapId];
-  const occupied = new Set();
-  getActiveEnemies(mapId).forEach(enemy => occupied.add(`${enemy.x},${enemy.y}`));
-  getActiveEnemies(mapId).forEach(enemy => {
-    const dirs = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
-    const pick = dirs[Math.floor(Math.random() * dirs.length)];
-    const nx = Math.max(1, Math.min(map.width, enemy.x + pick.x));
-    const ny = Math.max(1, Math.min(map.height, enemy.y + pick.y));
+  const off = facingOffset(enemy.facing);
+  let x = enemy.x + off.x;
+  let y = enemy.y + off.y;
+  while (x >= 1 && x <= map.width && y >= 1 && y <= map.height) {
+    if (isWall(map, x, y)) return false;
+    if (getActiveNpcs(mapId).some(n => n.x === x && n.y === y)) return false;
+    if (getActiveEnemies(mapId).some(e => e.id !== enemy.id && e.x === x && e.y === y)) return false;
+    if (profile.map.x === x && profile.map.y === y) return true;
+    x += off.x;
+    y += off.y;
+  }
+  return false;
+}
+
+function refreshSeenMarks(mapId, now = Date.now()) {
+  getActiveEnemies(mapId)
+    .filter(enemy => (enemy.type || "").toLowerCase() === "man")
+    .forEach(enemy => {
+      if (hasLineOfSightToPlayer(enemy, mapId)) {
+        enemySeenMarks[enemySeenKey(mapId, enemy.id)] = now + 5000;
+      }
+    });
+  pruneSeenMarks(now);
+}
+
+function chooseStepTowardPlayer(enemy, mapId, occupied) {
+  const dx = profile.map.x - enemy.x;
+  const dy = profile.map.y - enemy.y;
+  const candidates = [];
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    candidates.push({ x: Math.sign(dx), y: 0 });
+    if (dy !== 0) candidates.push({ x: 0, y: Math.sign(dy) });
+  } else {
+    candidates.push({ x: 0, y: Math.sign(dy) });
+    if (dx !== 0) candidates.push({ x: Math.sign(dx), y: 0 });
+  }
+  candidates.push({ x: 0, y: 0 });
+  for (const move of candidates) {
+    const nx = enemy.x + move.x;
+    const ny = enemy.y + move.y;
     const key = `${nx},${ny}`;
-    if (isWall(map, nx, ny)) return;
-    if (getActiveNpcs(mapId).some(n => n.x === nx && n.y === ny)) return;
-    if (occupied.has(key) && key !== `${enemy.x},${enemy.y}`) return;
+    if (isBlockedForEnemy(mapId, enemy, nx, ny, occupied)) continue;
+    return move;
+  }
+  return { x: 0, y: 0 };
+}
+
+function isBlockedForEnemy(mapId, enemy, x, y, occupied) {
+  const map = MAPS[mapId];
+  if (x < 1 || x > map.width || y < 1 || y > map.height) return true;
+  if (isWall(map, x, y)) return true;
+  if (getActiveNpcs(mapId).some(n => n.x === x && n.y === y)) return true;
+  const key = `${x},${y}`;
+  if (occupied.has(key) && key !== `${enemy.x},${enemy.y}`) return true;
+  return false;
+}
+
+function moveEnemiesRandom(mapId, now = Date.now()) {
+  if (mapId !== "Cave1-3") return;
+  if (!enemyMoveRuntime[mapId]) enemyMoveRuntime[mapId] = {};
+  const occupied = new Set();
+  const enemies = getActiveEnemies(mapId);
+  enemies.forEach(enemy => occupied.add(`${enemy.x},${enemy.y}`));
+  enemies.forEach(enemy => {
+    const markKey = enemySeenKey(mapId, enemy.id);
+    const isChasing = Number(enemySeenMarks[markKey] || 0) > now;
+    const baseInterval = 900;
+    const moveInterval = isChasing ? Math.round(baseInterval / 1.5) : baseInterval;
+    const runtime = enemyMoveRuntime[mapId][enemy.id] || { nextMoveAt: now + Math.floor(Math.random() * 220) };
+    enemyMoveRuntime[mapId][enemy.id] = runtime;
+    if (now < runtime.nextMoveAt) return;
+
+    const dirs = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+    const pick = isChasing
+      ? chooseStepTowardPlayer(enemy, mapId, occupied)
+      : dirs[Math.floor(Math.random() * dirs.length)];
+    const nx = enemy.x + pick.x;
+    const ny = enemy.y + pick.y;
+    const key = `${nx},${ny}`;
+    if (isBlockedForEnemy(mapId, enemy, nx, ny, occupied)) {
+      runtime.nextMoveAt = now + moveInterval;
+      return;
+    }
     occupied.delete(`${enemy.x},${enemy.y}`);
     occupied.add(key);
-    profile.enemyState[mapId][enemy.id] = { x: nx, y: ny };
+    const nextFacing = pick.x > 0 ? "right" : pick.x < 0 ? "left" : pick.y > 0 ? "down" : pick.y < 0 ? "up" : enemy.facing;
+    profile.enemyState[mapId][enemy.id] = { x: nx, y: ny, facing: nextFacing || "down" };
+    runtime.nextMoveAt = now + moveInterval;
   });
 }
 
@@ -1231,10 +1343,18 @@ function startEnemyMoveTicker() {
   if (enemyMoveTicker) clearInterval(enemyMoveTicker);
   enemyMoveTicker = setInterval(() => {
     if (!gameEntered || worldLocked || inEncounterBattle) return;
-    moveEnemiesRandom(profile.map.id);
+    const now = Date.now();
+    refreshSeenMarks(profile.map.id, now);
+    moveEnemiesRandom(profile.map.id, now);
+    const contactEnemy = enemyAtPosition(profile.map.id, profile.map.x, profile.map.y);
+    if (contactEnemy) {
+      activeEncounter = { mapId: profile.map.id, enemyId: contactEnemy.id };
+      startEncounterBattle(contactEnemy);
+      return;
+    }
     saveProfile();
     renderMap();
-  }, 900);
+  }, 200);
 }
 
 function renderMap() {
@@ -1263,7 +1383,9 @@ function renderMap() {
   }
   const frontNpc = getFrontNpc(map);
   const interactionHint = frontNpc ? ` | 前方可互动: ${frontNpc.id} (按Z)` : "";
-  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y}) 朝向:${facingLabel(profile.facing)}${interactionHint}`;
+  const now = Date.now();
+  const seenHint = isPlayerSeen(now) ? ` | Seen(${(getSeenRemainingMs(now) / 1000).toFixed(1)}s)` : "";
+  info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y}) 朝向:${facingLabel(profile.facing)}${interactionHint}${seenHint}`;
   renderWorldMap();
   renderSaveSummary();
 }
@@ -1356,7 +1478,7 @@ function renderWorldActors() {
     dot.style.top = `${padT + (y - worldViewportInfo.startY) * (cellH + gap) + cellH / 2}px`;
     layer.appendChild(dot);
   };
-  if (actorMotion.player) put("player", actorMotion.player.x, actorMotion.player.y);
+  if (actorMotion.player) put(`player${isPlayerSeen() ? " seen" : ""}`, actorMotion.player.x, actorMotion.player.y);
   Object.values(actorMotion.enemies).forEach(enemy => put("enemy", enemy.x, enemy.y));
 }
 
@@ -1433,8 +1555,10 @@ function tryMovePlayer(dx, dy) {
     profile.map.id = exit.to;
     profile.map.x = exit.spawn.x;
     profile.map.y = exit.spawn.y;
+    clearSeenMarks();
     addLog(`进入地图 ${exit.to}。`);
   }
+  refreshSeenMarks(profile.map.id);
   saveProfile();
   renderWalletBadge();
   renderMap();
@@ -1490,6 +1614,7 @@ function startEncounterBattle(enemy) {
     return;
   }
   inEncounterBattle = true;
+  clearSeenMarks();
   document.getElementById("worldSection")?.classList.add("hidden");
   document.getElementById("worldStatus")?.classList.add("hidden");
   document.getElementById("battleSim")?.classList.remove("hidden");
@@ -1957,6 +2082,8 @@ document.getElementById("startBtn").addEventListener("click", () => {
 });
 document.getElementById("continueBtn").addEventListener("click", () => {
   profile = loadProfile();
+  clearSeenMarks();
+  resetEnemyMoveRuntime();
   if (!applyLastSaveToProfile()) {
     addLog("没有检测到可用存档，已按当前进度进入游戏。");
   } else {
@@ -1968,6 +2095,8 @@ document.getElementById("continueBtn").addEventListener("click", () => {
 document.getElementById("newGameBtn").addEventListener("click", () => {
   localStorage.removeItem(SAVE_KEY);
   profile = defaultProfile();
+  clearSeenMarks();
+  resetEnemyMoveRuntime();
   saveProfile();
   addLog("已创建新游戏。");
   enterGame();
@@ -1998,6 +2127,8 @@ document.getElementById("saveBtn").addEventListener("click", () => {
 });
 document.getElementById("loadBtn").addEventListener("click", () => {
   profile = loadProfile();
+  clearSeenMarks();
+  resetEnemyMoveRuntime();
   applyLastSaveToProfile();
   renderWalletBadge();
   renderMap();
