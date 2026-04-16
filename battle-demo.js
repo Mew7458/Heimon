@@ -199,6 +199,7 @@ function defaultProfile() {
     cardDamageTypes: {},
     teamSlots: [null, null, null, null, null, null],
     defeatedEnemies: {},
+    enemyRespawnAt: {},
     clearedNpcs: {},
     galladonJoined: false,
     lastSave: null,
@@ -224,6 +225,7 @@ function loadProfile() {
       cardDamageTypes: parsed.cardDamageTypes || {},
       teamSlots: Array.isArray(parsed.teamSlots) && parsed.teamSlots.length === 6 ? parsed.teamSlots : [null, null, null, null, null, null],
       defeatedEnemies: parsed.defeatedEnemies || {},
+      enemyRespawnAt: parsed.enemyRespawnAt || {},
       clearedNpcs: parsed.clearedNpcs || {},
       galladonJoined: !!parsed.galladonJoined,
       lastSave: parsed.lastSave || null,
@@ -1029,9 +1031,10 @@ function syncTeamHpFromBattle() {
 function finalizeEncounterBattle(playerWon) {
   syncTeamHpFromBattle();
   if (playerWon && activeEncounter) {
-    profile.defeatedEnemies[`${activeEncounter.mapId}:${activeEncounter.enemyId}`] = true;
+    const key = `${activeEncounter.mapId}:${activeEncounter.enemyId}`;
+    profile.enemyRespawnAt[key] = Date.now() + 30_000;
     profile.wallet += 10;
-    addLog("遭遇战胜利，获得 10G。");
+    addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
   }
   saveProfile();
   renderWalletBadge();
@@ -1170,12 +1173,22 @@ function getActiveNpcs(mapId) {
 function getActiveEnemies(mapId) {
   initEnemyState(mapId);
   const map = MAPS[mapId];
+  const now = Date.now();
   return map.enemies
     .map(base => {
       const pos = profile.enemyState[mapId]?.[base.id];
       return { ...base, x: pos?.x ?? base.x, y: pos?.y ?? base.y };
     })
-    .filter(enemy => !profile.defeatedEnemies[`${mapId}:${enemy.id}`]);
+    .filter(enemy => {
+      const key = `${mapId}:${enemy.id}`;
+      const respawnAt = Number(profile.enemyRespawnAt?.[key] || 0);
+      if (!respawnAt) return true;
+      if (now >= respawnAt) {
+        delete profile.enemyRespawnAt[key];
+        return true;
+      }
+      return false;
+    });
 }
 
 function initEnemyState(mapId) {
@@ -1366,6 +1379,7 @@ function interactWithNearbyNpc() {
       profile.clearedNpcs[`${profile.map.id}:${npc.id}`] = true;
     }
     if (npc.id === "dew") {
+      healTeamToFull();
       messages.push("露水恢复了你的队伍生命。");
       profile.clearedNpcs[`${profile.map.id}:${npc.id}`] = true;
     }
@@ -1376,6 +1390,18 @@ function interactWithNearbyNpc() {
     return;
   }
   showDialogue(["你面前没有可互动单位（先调整朝向再按Z）。"]);
+}
+
+function healTeamToFull() {
+  const teamIds = new Set((profile.teamSlots || []).filter(Boolean));
+  allCardInstances().forEach(inst => {
+    if (!teamIds.has(inst.id)) return;
+    const list = profile.cardInstances[inst.cardName] || [];
+    const ref = list.find(x => x.id === inst.id);
+    if (!ref) return;
+    const maxHp = cardStatsWithRank(inst.cardName, inst.level, inst.rank).stats.HP;
+    ref.currentHp = maxHp;
+  });
 }
 
 function startEncounterBattle(enemy) {
@@ -1412,7 +1438,7 @@ function renderSaveSummary() {
   el.textContent = `当前地图: ${profile.map.id} (${profile.map.x}, ${profile.map.y})
 钱包: ${profile.wallet}G
 已拥有卡牌总数: ${Object.values(profile.cards || {}).reduce((s, n) => s + n, 0)}
-已击败地图敌人: ${Object.keys(profile.defeatedEnemies || {}).length}
+敌人复活倒计时中: ${Object.keys(profile.enemyRespawnAt || {}).length}
 Galladon入队: ${profile.galladonJoined ? "是" : "否"}`;
 }
 
@@ -1637,6 +1663,7 @@ function applyLastSaveToProfile() {
     ? [...profile.lastSave.teamSlots]
     : [...(profile.teamSlots || [null, null, null, null, null, null])];
   profile.defeatedEnemies = { ...profile.lastSave.defeatedEnemies };
+  profile.enemyRespawnAt = { ...(profile.lastSave.enemyRespawnAt || profile.enemyRespawnAt || {}) };
   profile.clearedNpcs = { ...(profile.lastSave.clearedNpcs || profile.clearedNpcs || {}) };
   profile.wallet = profile.lastSave.wallet;
   profile.cardInstances = { ...(profile.lastSave.cardInstances || profile.cardInstances || {}) };
@@ -1837,6 +1864,7 @@ document.getElementById("saveBtn").addEventListener("click", () => {
     cardInstances: { ...(profile.cardInstances || {}) },
     nextCardUid: profile.nextCardUid || 1,
     defeatedEnemies: { ...(profile.defeatedEnemies || {}) },
+    enemyRespawnAt: { ...(profile.enemyRespawnAt || {}) },
     clearedNpcs: { ...(profile.clearedNpcs || {}) },
     wallet: profile.wallet,
     cards: { ...(profile.cards || {}) },
