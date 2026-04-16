@@ -158,6 +158,7 @@ let openingState = null;
 let inEncounterBattle = false;
 let gameEntered = false;
 let dialogueQueue = [];
+let activeEncounter = null;
 
 function scaleStat(baseValue, level, kind) {
   if (baseValue === 0) return 0;
@@ -331,9 +332,26 @@ function cloneUnit(cardName, team, slot, level, attackTypePreset = null) {
   };
 }
 
-function initBattle(mode = "demo") {
-  const formation = STARTING_FORMATION;
-  const level = DEFAULT_BATTLE_LEVEL;
+function buildPlayerBattleTeam() {
+  return (profile.teamSlots || [null, null, null, null, null, null]).map((instanceId, i) => {
+    if (!instanceId) return null;
+    const inst = findCardInstanceById(instanceId);
+    if (!inst) return null;
+    const typeCfg = profile.cardDamageTypes?.[instanceId];
+    const unit = cloneUnit(inst.cardName, "player", i, inst.level || 1, {
+      PO: typeCfg?.po,
+      MO: typeCfg?.mo
+    });
+    unit.hp = Math.max(1, Math.min(unit.stats.HP, inst.currentHp || unit.stats.HP));
+    unit.instanceId = instanceId;
+    return unit;
+  });
+}
+
+function initBattle(mode = "demo", options = {}) {
+  const formation = options.formation || STARTING_FORMATION;
+  const level = options.level || DEFAULT_BATTLE_LEVEL;
+  const enemyLevel = options.enemyLevel || level;
   state = {
     mode,
     round: 1,
@@ -347,8 +365,8 @@ function initBattle(mode = "demo") {
       player: { sp: 0, skillPoints: 0 },
       enemy: { sp: 0, skillPoints: 0 }
     },
-    player: formation.player.map((c, i) => cloneUnit(c, "player", i, level, null)),
-    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, level, null)),
+    player: mode === "encounter" ? buildPlayerBattleTeam() : formation.player.map((c, i) => cloneUnit(c, "player", i, level, null)),
+    enemy: formation.enemy.map((c, i) => cloneUnit(c, "enemy", i, enemyLevel, null)),
     pending: { player: null, enemy: null },
     plannedActions: { player: [], enemy: [] },
     actedThisRound: { player: new Set(), enemy: new Set() },
@@ -357,7 +375,7 @@ function initBattle(mode = "demo") {
   };
 
   logEl.innerHTML = "";
-  addLog("Battle started. Default demo mode (player vs AI).");
+  addLog(mode === "encounter" ? "遭遇战开始。" : "Battle started. Default demo mode (player vs AI).");
   applyBattleStartPassives();
   state.roundStepLimit = computeRoundStepLimit();
   render();
@@ -993,7 +1011,33 @@ function checkBattleEnd() {
     state.ended = true;
     state.phase = "ended";
     addLog(enemyAlive ? "Player 2 wins." : "Player 1 wins.");
+    if (state.mode === "encounter") finalizeEncounterBattle(!enemyAlive);
   }
+}
+
+function syncTeamHpFromBattle() {
+  (state.player || []).forEach(unit => {
+    if (!unit?.instanceId) return;
+    const found = findCardInstanceById(unit.instanceId);
+    if (!found) return;
+    const list = profile.cardInstances[found.cardName] || [];
+    const ref = list.find(x => x.id === unit.instanceId);
+    if (!ref) return;
+    ref.currentHp = Math.max(1, Math.min(unit.stats.HP, unit.hp));
+  });
+  normalizeCardCounts();
+}
+
+function finalizeEncounterBattle(playerWon) {
+  syncTeamHpFromBattle();
+  if (playerWon && activeEncounter) {
+    profile.defeatedEnemies[`${activeEncounter.mapId}:${activeEncounter.enemyId}`] = true;
+    profile.wallet += 10;
+    addLog("遭遇战胜利，获得 10G。");
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
 }
 
 function cardHtml(unit, cls, teamName, rowTag, isSelected = false, actionMode = "PO") {
@@ -1281,10 +1325,8 @@ function tryMovePlayer(dx, dy) {
   moveEnemiesRandom(profile.map.id);
   const enemy = enemyAtPosition(profile.map.id, nx, ny);
   if (enemy) {
-    profile.defeatedEnemies[`${profile.map.id}:${enemy.id}`] = true;
-    profile.wallet += 10;
-    addLog(`遭遇 Man 并胜利，获得 10G。`);
-    startEncounterBattle();
+    activeEncounter = { mapId: profile.map.id, enemyId: enemy.id };
+    startEncounterBattle(enemy);
   }
   const exit = map.exits.find(e => e.x === nx && e.y === ny);
   if (exit && exit.to) {
@@ -1335,17 +1377,22 @@ function interactWithNearbyNpc() {
   showDialogue(["你面前没有可互动单位（先调整朝向再按Z）。"]);
 }
 
-function startEncounterBattle() {
+function startEncounterBattle(enemy) {
   inEncounterBattle = true;
   document.getElementById("worldSection")?.classList.add("hidden");
   document.getElementById("worldStatus")?.classList.add("hidden");
   document.getElementById("battleSim")?.classList.remove("hidden");
   document.querySelector(".controls")?.classList.remove("hidden");
   document.getElementById("battleLogSection")?.classList.remove("hidden");
-  initBattle("demo");
+  const encounterFormation = {
+    player: [null, null, null, null, null, null],
+    enemy: [null, null, null, null, "Man", null]
+  };
+  initBattle("encounter", { formation: encounterFormation, enemyLevel: 1 });
 }
 
 function returnToMapFromBattle() {
+  if (state.mode === "encounter" && state.ended) activeEncounter = null;
   inEncounterBattle = false;
   document.getElementById("battleSim")?.classList.add("hidden");
   document.querySelector(".controls")?.classList.add("hidden");
@@ -1472,7 +1519,6 @@ function renderTeamModal() {
     const slotCard = profile.teamSlots[idx] || "";
     wrap.innerHTML = `<b>${label}</b>`;
     const cardSel = document.createElement("select");
-    const ownChoice = slotCard ? findCardInstanceById(slotCard) : null;
     const available = instances.filter(inst => !picked.has(inst.id) || inst.id === slotCard);
     cardSel.innerHTML = `<option value="">(空位)</option>${available.map(inst => `<option value="${inst.id}">${inst.cardName} [${inst.id}] Lv${inst.level}</option>`).join("")}`;
     cardSel.value = slotCard;
@@ -1590,7 +1636,7 @@ function applyLastSaveToProfile() {
   profile.wallet = profile.lastSave.wallet;
   profile.cardInstances = { ...(profile.lastSave.cardInstances || profile.cardInstances || {}) };
   profile.nextCardUid = Number(profile.lastSave.nextCardUid || profile.nextCardUid || 1);
-  normalizeCardCounts();
+  migrateCardInventory(profile);
   profile.galladonJoined = !!profile.lastSave.galladonJoined;
   profile.enemyState = { ...(profile.lastSave.enemyState || {}) };
   return true;
