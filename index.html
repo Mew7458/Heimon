@@ -27,6 +27,7 @@
     <button>Team</button>
     <button>Bag</button>
     <button id="packBtn">Pack</button>
+    <button id="saveMenuBtn">Save</button>
     <button id="resetBtn">Exit</button>
     <button disabled>Locked</button>
   </aside>
@@ -36,10 +37,6 @@
       <div>
         <div id="minimap" class="minimap"></div>
         <small id="mapInfo">Map</small>
-        <div class="map-actions">
-          <button id="saveBtn">Save</button>
-          <button id="loadBtn">Load</button>
-        </div>
       </div>
       <div>
         <div id="phaseText">Player Turn</div>
@@ -87,7 +84,7 @@
       </div>
     </section>
 
-    <section class="hidden">
+    <section id="battleLogSection" class="hidden">
       <h3>Battle Log</h3>
       <div id="log" class="log"></div>
     </section>
@@ -119,6 +116,20 @@
         <div id="packFloat" class="pack-float">📦</div>
         <div id="packHint" class="pack-hint">点击卡包打开</div>
         <div id="rewardCard" class="reward-card hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="saveModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Save / Load</h3>
+        <button id="saveCloseBtn">✕</button>
+      </div>
+      <div id="saveSummary" class="pack-result"></div>
+      <div class="pack-actions">
+        <button id="saveBtn">Save</button>
+        <button id="loadBtn">Load</button>
       </div>
     </div>
   </section>

@@ -86,6 +86,7 @@ main { padding: 16px; max-width: 900px; margin: 0 auto; }
 .mini-cell {
   background: #1e2c49;
   border-radius: 2px;
+  aspect-ratio: 1 / 1;
 }
 .mini-cell.wall { background: #59607a; }
 .mini-cell.player { background: #78ffd6; }
@@ -109,7 +110,7 @@ main { padding: 16px; max-width: 900px; margin: 0 auto; }
 .world-cell {
   background: #1e2c49;
   border-radius: 3px;
-  min-height: 18px;
+  aspect-ratio: 1 / 1;
 }
 .world-cell.wall { background: #59607a; }
 .world-cell.player { background: #78ffd6; }

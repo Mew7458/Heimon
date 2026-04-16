@@ -126,14 +126,20 @@ const MAPS = {
   },
   "Cave1-2": {
     width: 15, height: 11, spawn: { x: 6, y: 1 },
-    exits: [{ x: 15, y: 6, to: "Cave1-3", spawn: { x: 1, y: 6 } }],
+    exits: [
+      { x: 1, y: 6, to: "Cave1-1", spawn: { x: 15, y: 6 } },
+      { x: 15, y: 6, to: "Cave1-3", spawn: { x: 1, y: 6 } }
+    ],
     walls: [{ x1: 7, y1: 5, x2: 9, y2: 7 }],
     enemies: [],
     npcs: [{ id: "galladon", x: 12, y: 6 }, { id: "dew", x: 14, y: 2 }]
   },
   "Cave1-3": {
     width: 10, height: 28, spawn: { x: 6, y: 1 },
-    exits: [{ x: 10, y: 28, to: null, spawn: null }],
+    exits: [
+      { x: 1, y: 6, to: "Cave1-2", spawn: { x: 15, y: 6 } },
+      { x: 10, y: 28, to: null, spawn: null }
+    ],
     walls: [],
     enemies: [
       { id: "m1", x: 4, y: 13 },
@@ -1060,6 +1066,7 @@ function renderMap() {
   }
   info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y})`;
   renderWorldMap();
+  renderSaveSummary();
 }
 
 function renderWorldMap() {
@@ -1095,6 +1102,7 @@ function tryMovePlayer(dx, dy) {
     profile.defeatedEnemies[`${profile.map.id}:${enemy.id}`] = true;
     profile.wallet += 10;
     addLog(`遭遇 Man 并胜利，获得 10G。`);
+    startEncounterBattle();
   }
   const npc = map.npcs?.find(n => n.x === nx && n.y === ny);
   if (npc?.id === "galladon") addLog("你与 Galladon 互动。");
@@ -1109,6 +1117,22 @@ function tryMovePlayer(dx, dy) {
   saveProfile();
   renderWalletBadge();
   renderMap();
+}
+
+function startEncounterBattle() {
+  document.getElementById("battleSim")?.classList.remove("hidden");
+  document.querySelector(".controls")?.classList.remove("hidden");
+  document.getElementById("battleLogSection")?.classList.remove("hidden");
+  initBattle("demo");
+}
+
+function renderSaveSummary() {
+  const el = document.getElementById("saveSummary");
+  if (!el) return;
+  el.textContent = `当前地图: ${profile.map.id} (${profile.map.x}, ${profile.map.y})
+钱包: ${profile.wallet}G
+已拥有卡牌种类: ${Object.keys(profile.cards || {}).length}
+已击败地图敌人: ${Object.keys(profile.defeatedEnemies || {}).length}`;
 }
 
 function applyRewards(rewards) {
@@ -1215,6 +1239,13 @@ document.getElementById("packBtn").addEventListener("click", () => {
   document.getElementById("packModal").classList.remove("hidden");
   renderPackModal();
 });
+document.getElementById("saveMenuBtn").addEventListener("click", () => {
+  renderSaveSummary();
+  document.getElementById("saveModal").classList.remove("hidden");
+});
+document.getElementById("saveCloseBtn").addEventListener("click", () => {
+  document.getElementById("saveModal").classList.add("hidden");
+});
 document.getElementById("packCloseBtn").addEventListener("click", () => {
   if (openingState) finishPackOpening();
   document.getElementById("packModal").classList.add("hidden");
@@ -1250,17 +1281,20 @@ document.getElementById("startBtn").addEventListener("click", () => {
 });
 document.getElementById("saveBtn").addEventListener("click", () => {
   saveProfile();
+  renderSaveSummary();
   addLog("存档成功。");
 });
 document.getElementById("loadBtn").addEventListener("click", () => {
   profile = loadProfile();
   renderWalletBadge();
   renderMap();
+  renderSaveSummary();
   addLog("已读取存档。");
 });
 window.addEventListener("keydown", (e) => {
   if (document.getElementById("gameApp").classList.contains("hidden")) return;
   if (!document.getElementById("packModal").classList.contains("hidden")) return;
+  if (!document.getElementById("saveModal").classList.contains("hidden")) return;
   const key = e.key.toLowerCase();
   if (key === "w") tryMovePlayer(0, -1);
   if (key === "s") tryMovePlayer(0, 1);
