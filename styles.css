@@ -154,6 +154,10 @@ main { padding: 16px; max-width: 900px; margin: 0 auto; }
   box-shadow: 0 0 12px rgba(255, 120, 120, 0.75);
 }
 .world-actor.enemy { background: #ff8f8f; }
+.world-actor.enemy.darkened {
+  opacity: 0.22;
+  filter: brightness(0.2);
+}
 .world-cell {
   background: #1e2c49;
   border-radius: 3px;
@@ -374,6 +378,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 16px;
   background: rgba(2, 8, 20, 0.4);
   z-index: 40;
+  filter: none !important;
 }
 .dialogue-box {
   width: min(760px, 96vw);
@@ -382,6 +387,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: 10px;
   padding: 12px 14px;
   box-shadow: 0 16px 30px rgba(0,0,0,0.35);
+  filter: none !important;
+  opacity: 1 !important;
 }
 .dialogue-text {
   min-height: 42px;

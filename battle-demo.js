@@ -695,6 +695,23 @@ function applyBattleStartPassives() {
           addLog(`Passive Triggered: Down the Wind on ${unit.name} (+${others * 5}% Spd).`);
         }
       }
+      if (unit.ability?.includes("Swarm")) {
+        const summonName = "Cavern Worms";
+        const summonLevel = Math.max(1, (unit.level || 1) - 5);
+        const emptySlots = state[team]
+          .map((slotUnit, idx) => (slotUnit?.alive ? -1 : idx))
+          .filter(idx => idx >= 0);
+        let summoned = 0;
+        emptySlots.forEach(slotIdx => {
+          if (!CARDS[summonName]) return;
+          state[team][slotIdx] = cloneUnit(summonName, team, slotIdx, summonLevel, null);
+          summoned += 1;
+        });
+        if (summoned > 0) {
+          addLog(`Passive Triggered: Swarm on ${unit.name} (summoned ${summoned} Cavern Worms).`);
+          applyPassiveFx(unit, "passive-engine", "green", true);
+        }
+      }
     });
   });
 }
@@ -1046,6 +1063,51 @@ function checkBattleEnd() {
     addLog(enemyAlive ? "Player 2 wins." : "Player 1 wins.");
     if (state.mode === "encounter") finalizeEncounterBattle(!enemyAlive);
   }
+}
+
+function syncTeamHpFromBattle() {
+  (state.player || []).forEach(unit => {
+    if (!unit?.instanceId) return;
+    const found = findCardInstanceById(unit.instanceId);
+    if (!found) return;
+    const list = profile.cardInstances[found.cardName] || [];
+    const ref = list.find(x => x.id === unit.instanceId);
+    if (!ref) return;
+    ref.currentHp = Math.max(1, Math.min(unit.stats.HP, unit.hp));
+  });
+  normalizeCardCounts();
+}
+
+function finalizeEncounterBattle(playerWon) {
+  syncTeamHpFromBattle();
+  if (playerWon && activeEncounter) {
+    const key = `${activeEncounter.mapId}:${activeEncounter.enemyId}`;
+    const behavior = ENEMY_BEHAVIOR[activeEncounter.enemyType] || ENEMY_BEHAVIOR.Man;
+    profile.wallet += Number(behavior.rewardGold || 10);
+    if (activeEncounter.enemyType === "Cavern Worms") {
+      if (profile.dynamicEnemies?.[activeEncounter.mapId]?.[activeEncounter.enemyId]) {
+        delete profile.dynamicEnemies[activeEncounter.mapId][activeEncounter.enemyId];
+      }
+      if (profile.enemyState?.[activeEncounter.mapId]?.[activeEncounter.enemyId]) {
+        delete profile.enemyState[activeEncounter.mapId][activeEncounter.enemyId];
+      }
+      if (!profile.items.Rock) {
+        profile.items.Rock = 1;
+        addLog("遭遇战胜利，获得 20G 与 Rock。");
+      } else {
+        addLog("遭遇战胜利，获得 20G。");
+      }
+    } else {
+      profile.enemyRespawnAt[key] = Date.now() + 30_000;
+      addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
+    }
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
+  setTimeout(() => {
+    if (inEncounterBattle && state.mode === "encounter" && state.ended) returnToMapFromBattle();
+  }, 450);
 }
 
 function syncTeamHpFromBattle() {
@@ -1627,7 +1689,11 @@ function renderWorldActors() {
     layer.appendChild(dot);
   };
   if (actorMotion.player) put(`player${isPlayerSeen() ? " seen" : ""}`, actorMotion.player.x, actorMotion.player.y);
-  Object.values(actorMotion.enemies).forEach(enemy => put("enemy", enemy.x, enemy.y));
+  Object.values(actorMotion.enemies).forEach(enemy => {
+    const isCaveDark = profile.map.id === "Cave1-4";
+    const inLitArea = Math.abs(profile.map.x - enemy.x) <= 1 && Math.abs(profile.map.y - enemy.y) <= 1;
+    put(`enemy${isCaveDark && !inLitArea ? " darkened" : ""}`, enemy.x, enemy.y);
+  });
 }
 
 function updateFacingByDelta(dx, dy) {
