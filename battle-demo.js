@@ -1033,6 +1033,7 @@ function onSlotClick(team, idx) {
   if (!valid.includes(idx)) return;
 
   addLog(`${selectingTeam === "player" ? "Player 1" : "Player 2"} selects ${attacker.name} ${actionMode} -> ${unit.name}`);
+  registerRoundAction(selectingTeam, attacker);
   commitTeamAction(selectingTeam, attacker, idx, actionMode);
 }
 
@@ -1083,6 +1084,35 @@ function finalizeEncounterBattle(playerWon) {
       profile.enemyRespawnAt[key] = Date.now() + 30_000;
       addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
     }
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
+  setTimeout(() => {
+    if (inEncounterBattle && state.mode === "encounter" && state.ended) returnToMapFromBattle();
+  }, 450);
+}
+
+function syncTeamHpFromBattle() {
+  (state.player || []).forEach(unit => {
+    if (!unit?.instanceId) return;
+    const found = findCardInstanceById(unit.instanceId);
+    if (!found) return;
+    const list = profile.cardInstances[found.cardName] || [];
+    const ref = list.find(x => x.id === unit.instanceId);
+    if (!ref) return;
+    ref.currentHp = Math.max(1, Math.min(unit.stats.HP, unit.hp));
+  });
+  normalizeCardCounts();
+}
+
+function finalizeEncounterBattle(playerWon) {
+  syncTeamHpFromBattle();
+  if (playerWon && activeEncounter) {
+    const key = `${activeEncounter.mapId}:${activeEncounter.enemyId}`;
+    profile.enemyRespawnAt[key] = Date.now() + 30_000;
+    profile.wallet += 10;
+    addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
   }
   saveProfile();
   renderWalletBadge();
