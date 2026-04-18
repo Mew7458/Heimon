@@ -48,6 +48,9 @@ const CARDS = {
   Wishie: { name: "Wishie", types: ["Water"], baseStats: { HP: 25, PO: 15, Def: 5, MO: 1, MR: 2, Spd: 40 }, ability: "First Strike", skill: { name: "Flash Fin", type: "Water", power: 7, range: "basic", damageKind: "PO" } },
   Washie: { name: "Washie", types: ["Water"], baseStats: { HP: 55, PO: 27, Def: 15, MO: 10, MR: 12, Spd: 45 }, ability: "First Strike", skill: { name: "Rapid Tide", type: "Water", power: 9, range: "basic", damageKind: "PO" } },
   Waigenitor: { name: "Waigenitor", types: ["Water"], baseStats: { HP: 125, PO: 35, Def: 30, MO: 25, MR: 25, Spd: 47 }, ability: "First Strike / Engine / Our Tides", skill: { name: "Ocean Crown", type: "Water", power: 11, range: "all", damageKind: "PO" } },
+  "Cavern Worms": { name: "Cavern Worms", types: ["Bug", "Water", "Ground"], baseStats: { HP: 15, PO: 5, Def: 1, MO: 0, MR: 0, Spd: 12 }, ability: "Swarm", skill: { name: "Worm Lunge", type: "Bug", power: 6, range: "basic", damageKind: "PO" } },
+  "Cavern Panic": { name: "Cavern Panic", types: ["Bug", "Water", "Ground"], baseStats: { HP: 85, PO: 35, Def: 15, MO: 1, MR: 10, Spd: 17 }, ability: "Swarm / Bloodthirst / Hive Network", skill: { name: "Cave Rupture", type: "Ground", power: 9, range: "basic", damageKind: "PO" } },
+  "Cavern Maternary": { name: "Cavern Maternary", types: ["Bug", "Water", "Ground", "Organism"], baseStats: { HP: 150, PO: 50, Def: 25, MO: 20, MR: 20, Spd: 20 }, ability: "Swarm / Bloodthirst+ / Hive Network / Maternal body", skill: { name: "Failed Reproduction", type: "Organism", power: 30, range: "free-far", damageKind: "MO" } },
   "The Thing": { name: "The Thing", types: ["Fear", "Organism"], baseStats: { HP: 1250, PO: 75, Def: 50, MO: 0, MR: 45, Spd: 15 }, ability: "Shell of certain Creation", skill: { name: "Serve....", type: "Fear", power: 50, range: "free-basic", damageKind: "TD" } },
   "A Certain Creation - The Eye": { name: "A Certain Creation - The Eye", types: ["Fear", "Erroneous"], baseStats: { HP: 500, PO: 30, Def: 15, MO: 75, MR: 35, Spd: 30 }, ability: "Creation of something Beyond", skill: { name: "Nature of violence", type: "Fear", power: 10, range: "all", damageKind: "TD" } }
 };
@@ -66,7 +69,8 @@ const EVOLUTION_RULES = {
   Sharkuna: [{ at: 28, to: "Snight" }],
   Sheldor: [{ at: 30, to: "Sheldon" }],
   Wishie: [{ at: 27, to: "Washie" }],
-  Washie: [{ at: 55, to: "Waigenitor", requires: "Crown of the Progenitor" }]
+  Washie: [{ at: 55, to: "Waigenitor", requires: "Crown of the Progenitor" }],
+  "Cavern Worms": [{ at: 25, to: "Cavern Panic" }]
 };
 
 const STARTING_FORMATION = {
@@ -116,6 +120,10 @@ const PACKS = {
   }
 };
 const PACK_ORDER = ["man_for_you", "planes_1"];
+const ENEMY_BEHAVIOR = {
+  Man: { markLabel: "Seen", durationMs: 5000, chaseSpeedMult: 1.5, rewardGold: 10, visionMode: "line" },
+  "Cavern Worms": { markLabel: "Sensed", durationMs: 5000, chaseSpeedMult: 2, rewardGold: 20, visionMode: "radius3x3" }
+};
 const MAPS = {
   "Cave1-1": {
     width: 15, height: 11, spawn: { x: 5, y: 6 },
@@ -138,7 +146,7 @@ const MAPS = {
     width: 10, height: 28, spawn: { x: 6, y: 1 },
     exits: [
       { x: 1, y: 6, to: "Cave1-2", spawn: { x: 15, y: 6 } },
-      { x: 10, y: 28, to: null, spawn: null }
+      { x: 10, y: 28, to: "Cave1-4", spawn: { x: 2, y: 2 } }
     ],
     walls: [],
     enemies: [
@@ -147,6 +155,14 @@ const MAPS = {
       { id: "m3", type: "Man", x: 3, y: 20, facing: "down" },
       { id: "m4", type: "Man", x: 8, y: 24, facing: "down" }
     ],
+    npcs: []
+  },
+  "Cave1-4": {
+    width: 15, height: 11, spawn: { x: 2, y: 2 },
+    exits: [{ x: 1, y: 1, to: "Cave1-3", spawn: { x: 10, y: 27 } }],
+    walls: [{ x1: 6, y1: 4, x2: 8, y2: 8 }],
+    waterRects: [{ x1: 10, y1: 2, x2: 15, y2: 10 }],
+    enemies: [],
     npcs: []
   }
 };
@@ -213,7 +229,10 @@ function defaultProfile() {
     introSeen: false,
     galladonJoined: false,
     lastSave: null,
-    enemyState: {}
+    enemyState: {},
+    dynamicEnemies: {},
+    items: {},
+    lastCaveWormSpawnAt: 0
   };
 }
 
@@ -240,7 +259,10 @@ function loadProfile() {
       introSeen: !!parsed.introSeen,
       galladonJoined: !!parsed.galladonJoined,
       lastSave: parsed.lastSave || null,
-      enemyState: parsed.enemyState || {}
+      enemyState: parsed.enemyState || {},
+      dynamicEnemies: parsed.dynamicEnemies || {},
+      items: parsed.items || {},
+      lastCaveWormSpawnAt: Number(parsed.lastCaveWormSpawnAt || 0)
     };
     migrateCardInventory(loaded);
     return loaded;
@@ -1043,6 +1065,51 @@ function finalizeEncounterBattle(playerWon) {
   syncTeamHpFromBattle();
   if (playerWon && activeEncounter) {
     const key = `${activeEncounter.mapId}:${activeEncounter.enemyId}`;
+    const behavior = ENEMY_BEHAVIOR[activeEncounter.enemyType] || ENEMY_BEHAVIOR.Man;
+    profile.wallet += Number(behavior.rewardGold || 10);
+    if (activeEncounter.enemyType === "Cavern Worms") {
+      if (profile.dynamicEnemies?.[activeEncounter.mapId]?.[activeEncounter.enemyId]) {
+        delete profile.dynamicEnemies[activeEncounter.mapId][activeEncounter.enemyId];
+      }
+      if (profile.enemyState?.[activeEncounter.mapId]?.[activeEncounter.enemyId]) {
+        delete profile.enemyState[activeEncounter.mapId][activeEncounter.enemyId];
+      }
+      if (!profile.items.Rock) {
+        profile.items.Rock = 1;
+        addLog("遭遇战胜利，获得 20G 与 Rock。");
+      } else {
+        addLog("遭遇战胜利，获得 20G。");
+      }
+    } else {
+      profile.enemyRespawnAt[key] = Date.now() + 30_000;
+      addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
+    }
+  }
+  saveProfile();
+  renderWalletBadge();
+  renderMap();
+  setTimeout(() => {
+    if (inEncounterBattle && state.mode === "encounter" && state.ended) returnToMapFromBattle();
+  }, 450);
+}
+
+function syncTeamHpFromBattle() {
+  (state.player || []).forEach(unit => {
+    if (!unit?.instanceId) return;
+    const found = findCardInstanceById(unit.instanceId);
+    if (!found) return;
+    const list = profile.cardInstances[found.cardName] || [];
+    const ref = list.find(x => x.id === unit.instanceId);
+    if (!ref) return;
+    ref.currentHp = Math.max(1, Math.min(unit.stats.HP, unit.hp));
+  });
+  normalizeCardCounts();
+}
+
+function finalizeEncounterBattle(playerWon) {
+  syncTeamHpFromBattle();
+  if (playerWon && activeEncounter) {
+    const key = `${activeEncounter.mapId}:${activeEncounter.enemyId}`;
     profile.enemyRespawnAt[key] = Date.now() + 30_000;
     profile.wallet += 10;
     addLog("遭遇战胜利，获得 10G。敌人将在30秒后复活。");
@@ -1185,7 +1252,11 @@ function getActiveEnemies(mapId) {
   initEnemyState(mapId);
   const map = MAPS[mapId];
   const now = Date.now();
-  return map.enemies
+  const mapEnemies = [
+    ...(map.enemies || []),
+    ...Object.values(profile.dynamicEnemies?.[mapId] || {})
+  ];
+  return mapEnemies
     .map(base => {
       const pos = profile.enemyState[mapId]?.[base.id];
       return { ...base, x: pos?.x ?? base.x, y: pos?.y ?? base.y, facing: pos?.facing || base.facing || "down" };
@@ -1204,7 +1275,11 @@ function getActiveEnemies(mapId) {
 
 function initEnemyState(mapId) {
   if (!profile.enemyState[mapId]) profile.enemyState[mapId] = {};
-  MAPS[mapId].enemies.forEach(enemy => {
+  const mapEnemies = [
+    ...(MAPS[mapId].enemies || []),
+    ...Object.values(profile.dynamicEnemies?.[mapId] || {})
+  ];
+  mapEnemies.forEach(enemy => {
     if (!profile.enemyState[mapId][enemy.id]) {
       profile.enemyState[mapId][enemy.id] = { x: enemy.x, y: enemy.y, facing: enemy.facing || "down" };
       return;
@@ -1221,7 +1296,7 @@ function enemySeenKey(mapId, enemyId) {
 
 function pruneSeenMarks(now = Date.now()) {
   Object.keys(enemySeenMarks).forEach(key => {
-    if ((enemySeenMarks[key] || 0) <= now) delete enemySeenMarks[key];
+    if (Number(enemySeenMarks[key]?.expiresAt || 0) <= now) delete enemySeenMarks[key];
   });
 }
 
@@ -1237,13 +1312,19 @@ function resetEnemyMoveRuntime() {
 
 function isPlayerSeen(now = Date.now()) {
   pruneSeenMarks(now);
-  return Object.values(enemySeenMarks).some(ts => ts > now);
+  return Object.values(enemySeenMarks).some(mark => Number(mark?.expiresAt || 0) > now);
 }
 
 function getSeenRemainingMs(now = Date.now()) {
   pruneSeenMarks(now);
-  const remain = Object.values(enemySeenMarks).reduce((max, ts) => Math.max(max, ts - now), 0);
+  const remain = Object.values(enemySeenMarks).reduce((max, mark) => Math.max(max, Number(mark?.expiresAt || 0) - now), 0);
   return Math.max(0, remain);
+}
+
+function getActiveMarkLabel(now = Date.now()) {
+  pruneSeenMarks(now);
+  const active = Object.values(enemySeenMarks).find(mark => Number(mark?.expiresAt || 0) > now);
+  return active?.label || "Seen";
 }
 
 function hasLineOfSightToPlayer(enemy, mapId) {
@@ -1262,14 +1343,39 @@ function hasLineOfSightToPlayer(enemy, mapId) {
   return false;
 }
 
+function hasRadiusSightToPlayer(enemy, mapId) {
+  const dx = Math.abs(profile.map.x - enemy.x);
+  const dy = Math.abs(profile.map.y - enemy.y);
+  if (dx > 1 || dy > 1) return false;
+  const map = MAPS[mapId];
+  if (isWall(map, profile.map.x, profile.map.y)) return false;
+  if (dx === 1 && dy === 1) {
+    const sideA = { x: enemy.x, y: profile.map.y };
+    const sideB = { x: profile.map.x, y: enemy.y };
+    const blocked = [sideA, sideB].every(tile =>
+      isWall(map, tile.x, tile.y)
+      || getActiveNpcs(mapId).some(n => n.x === tile.x && n.y === tile.y)
+      || getActiveEnemies(mapId).some(e => e.id !== enemy.id && e.x === tile.x && e.y === tile.y)
+    );
+    if (blocked) return false;
+  }
+  return true;
+}
+
 function refreshSeenMarks(mapId, now = Date.now()) {
-  getActiveEnemies(mapId)
-    .filter(enemy => (enemy.type || "").toLowerCase() === "man")
-    .forEach(enemy => {
-      if (hasLineOfSightToPlayer(enemy, mapId)) {
-        enemySeenMarks[enemySeenKey(mapId, enemy.id)] = now + 5000;
-      }
-    });
+  getActiveEnemies(mapId).forEach(enemy => {
+    const behavior = ENEMY_BEHAVIOR[enemy.type];
+    if (!behavior) return;
+    const detected = behavior.visionMode === "radius3x3"
+      ? hasRadiusSightToPlayer(enemy, mapId)
+      : hasLineOfSightToPlayer(enemy, mapId);
+    if (!detected) return;
+    enemySeenMarks[enemySeenKey(mapId, enemy.id)] = {
+      expiresAt: now + behavior.durationMs,
+      label: behavior.markLabel,
+      chaseSpeedMult: behavior.chaseSpeedMult
+    };
+  });
   pruneSeenMarks(now);
 }
 
@@ -1305,17 +1411,51 @@ function isBlockedForEnemy(mapId, enemy, x, y, occupied) {
   return false;
 }
 
+function isWaterTile(map, x, y) {
+  return (map.waterRects || []).some(w => x >= w.x1 && x <= w.x2 && y >= w.y1 && y <= w.y2);
+}
+
+function spawnCaveWormIfNeeded(now = Date.now()) {
+  const mapId = "Cave1-4";
+  const map = MAPS[mapId];
+  if (!map) return;
+  if (!profile.dynamicEnemies[mapId]) profile.dynamicEnemies[mapId] = {};
+  const active = getActiveEnemies(mapId).filter(enemy => enemy.type === "Cavern Worms");
+  if (active.length >= 5) return;
+  if (now - Number(profile.lastCaveWormSpawnAt || 0) < 15000) return;
+  const candidates = [];
+  for (let y = 1; y <= map.height; y += 1) {
+    for (let x = 1; x <= map.width; x += 1) {
+      if (!isWaterTile(map, x, y)) continue;
+      if (isWall(map, x, y)) continue;
+      if (getActiveNpcs(mapId).some(n => n.x === x && n.y === y)) continue;
+      if (getActiveEnemies(mapId).some(e => e.x === x && e.y === y)) continue;
+      candidates.push({ x, y });
+    }
+  }
+  if (!candidates.length) return;
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  const id = `cw_${Date.now().toString(36)}_${Math.floor(Math.random() * 999)}`;
+  const level = Math.random() < 0.5 ? 1 : 2;
+  profile.dynamicEnemies[mapId][id] = { id, type: "Cavern Worms", x: pick.x, y: pick.y, facing: "left", level };
+  if (!profile.enemyState[mapId]) profile.enemyState[mapId] = {};
+  profile.enemyState[mapId][id] = { x: pick.x, y: pick.y, facing: "left" };
+  profile.lastCaveWormSpawnAt = now;
+}
+
 function moveEnemiesRandom(mapId, now = Date.now()) {
-  if (mapId !== "Cave1-3") return;
+  if (mapId !== "Cave1-3" && mapId !== "Cave1-4") return;
   if (!enemyMoveRuntime[mapId]) enemyMoveRuntime[mapId] = {};
   const occupied = new Set();
   const enemies = getActiveEnemies(mapId);
   enemies.forEach(enemy => occupied.add(`${enemy.x},${enemy.y}`));
   enemies.forEach(enemy => {
     const markKey = enemySeenKey(mapId, enemy.id);
-    const isChasing = Number(enemySeenMarks[markKey] || 0) > now;
+    const mark = enemySeenMarks[markKey];
+    const behavior = ENEMY_BEHAVIOR[enemy.type] || ENEMY_BEHAVIOR.Man;
+    const isChasing = Number(mark?.expiresAt || 0) > now;
     const baseInterval = 900;
-    const moveInterval = isChasing ? Math.round(baseInterval / 1.5) : baseInterval;
+    const moveInterval = isChasing ? Math.round(baseInterval / (mark?.chaseSpeedMult || behavior.chaseSpeedMult || 1.5)) : baseInterval;
     const runtime = enemyMoveRuntime[mapId][enemy.id] || { nextMoveAt: now + Math.floor(Math.random() * 220) };
     enemyMoveRuntime[mapId][enemy.id] = runtime;
     if (now < runtime.nextMoveAt) return;
@@ -1344,11 +1484,12 @@ function startEnemyMoveTicker() {
   enemyMoveTicker = setInterval(() => {
     if (!gameEntered || worldLocked || inEncounterBattle) return;
     const now = Date.now();
+    spawnCaveWormIfNeeded(now);
     refreshSeenMarks(profile.map.id, now);
     moveEnemiesRandom(profile.map.id, now);
     const contactEnemy = enemyAtPosition(profile.map.id, profile.map.x, profile.map.y);
     if (contactEnemy) {
-      activeEncounter = { mapId: profile.map.id, enemyId: contactEnemy.id };
+      activeEncounter = { mapId: profile.map.id, enemyId: contactEnemy.id, enemyType: contactEnemy.type || "Man", enemyLevel: Number(contactEnemy.level || 1) };
       startEncounterBattle(contactEnemy);
       return;
     }
@@ -1372,6 +1513,7 @@ function renderMap() {
         cell.classList.add("wall");
       } else {
         if (isWall(map, x, y)) cell.classList.add("wall");
+        if (isWaterTile(map, x, y)) cell.classList.add("water");
         if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
         if (enemyAtPosition(profile.map.id, x, y)) cell.classList.add("enemy");
         if (profile.map.x === x && profile.map.y === y) {
@@ -1384,7 +1526,8 @@ function renderMap() {
   const frontNpc = getFrontNpc(map);
   const interactionHint = frontNpc ? ` | 前方可互动: ${frontNpc.id} (按Z)` : "";
   const now = Date.now();
-  const seenHint = isPlayerSeen(now) ? ` | Seen(${(getSeenRemainingMs(now) / 1000).toFixed(1)}s)` : "";
+  const markLabel = getActiveMarkLabel(now);
+  const seenHint = isPlayerSeen(now) ? ` | ${markLabel}(${(getSeenRemainingMs(now) / 1000).toFixed(1)}s)` : "";
   info.textContent = `${profile.map.id} (${profile.map.x}, ${profile.map.y}) 朝向:${facingLabel(profile.facing)}${interactionHint}${seenHint}`;
   renderWorldMap();
   renderSaveSummary();
@@ -1406,8 +1549,13 @@ function renderWorldMap() {
         cell.classList.add("wall");
       } else {
         if (isWall(map, x, y)) cell.classList.add("wall");
+        if (isWaterTile(map, x, y)) cell.classList.add("water");
         if (map.exits.some(exit => exit.x === x && exit.y === y)) cell.classList.add("exit");
         if (getActiveNpcs(profile.map.id).some(npc => npc.x === x && npc.y === y)) cell.classList.add("npc");
+        if (profile.map.id === "Cave1-4") {
+          const near = Math.abs(profile.map.x - x) <= 1 && Math.abs(profile.map.y - y) <= 1;
+          cell.style.filter = `brightness(${near ? 0.7 : 0.05})`;
+        }
       }
       worldMap.appendChild(cell);
     }
@@ -1541,7 +1689,7 @@ function tryMovePlayer(dx, dy) {
   profile.map.y = ny;
   const enemy = enemyAtPosition(profile.map.id, nx, ny);
   if (enemy) {
-    activeEncounter = { mapId: profile.map.id, enemyId: enemy.id };
+    activeEncounter = { mapId: profile.map.id, enemyId: enemy.id, enemyType: enemy.type || "Man", enemyLevel: Number(enemy.level || 1) };
     startEncounterBattle(enemy);
   }
   const exit = map.exits.find(e => e.x === nx && e.y === ny);
@@ -1620,11 +1768,13 @@ function startEncounterBattle(enemy) {
   document.getElementById("battleSim")?.classList.remove("hidden");
   document.querySelector(".controls")?.classList.remove("hidden");
   document.getElementById("battleLogSection")?.classList.remove("hidden");
+  const enemyCardName = enemy?.type || "Man";
+  const enemyLevel = Math.max(1, Math.min(MAX_LEVEL, Number(enemy?.level || 1)));
   const encounterFormation = {
     player: [null, null, null, null, null, null],
-    enemy: [null, null, null, null, "Man", null]
+    enemy: [null, null, null, null, enemyCardName, null]
   };
-  initBattle("encounter", { formation: encounterFormation, enemyLevel: 1 });
+  initBattle("encounter", { formation: encounterFormation, enemyLevel });
 }
 
 function returnToMapFromBattle() {
@@ -1914,6 +2064,9 @@ function applyLastSaveToProfile() {
   migrateCardInventory(profile);
   profile.galladonJoined = !!profile.lastSave.galladonJoined;
   profile.enemyState = { ...(profile.lastSave.enemyState || {}) };
+  profile.dynamicEnemies = { ...(profile.lastSave.dynamicEnemies || {}) };
+  profile.items = { ...(profile.lastSave.items || profile.items || {}) };
+  profile.lastCaveWormSpawnAt = Number(profile.lastSave.lastCaveWormSpawnAt || profile.lastCaveWormSpawnAt || 0);
   return true;
 }
 
@@ -2119,7 +2272,10 @@ document.getElementById("saveBtn").addEventListener("click", () => {
     wallet: profile.wallet,
     cards: { ...(profile.cards || {}) },
     galladonJoined: profile.galladonJoined,
-    enemyState: { ...(profile.enemyState || {}) }
+    enemyState: { ...(profile.enemyState || {}) },
+    dynamicEnemies: { ...(profile.dynamicEnemies || {}) },
+    items: { ...(profile.items || {}) },
+    lastCaveWormSpawnAt: Number(profile.lastCaveWormSpawnAt || 0)
   };
   saveProfile();
   renderSaveSummary();
